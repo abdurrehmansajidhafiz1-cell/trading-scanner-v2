@@ -1,0 +1,46 @@
+name: Trading Scanner
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: trading-scanner-run
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repo checkout karo
+        uses: actions/checkout@v4
+
+      - name: Python setup karo
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Dependencies install karo
+        run: pip install -r requirements.txt
+
+      - name: Offline tests run karo (Regression protection)
+        run: python test_offline.py
+
+      - name: Scanner chalao
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          REPORT_EMAIL_TO: ${{ secrets.REPORT_EMAIL_TO }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          MIN_RR: ${{ secrets.MIN_RR }}
+          SYSTEM_START_DATETIME: ${{ secrets.SYSTEM_START_DATETIME }}
+        run: python main.py
+
+      - name: Database ko commit karo (taake crash logs aur state persist rahein)
+        if: always()
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add trading_system.db || true
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update database [skip ci]"
+          git push || true
