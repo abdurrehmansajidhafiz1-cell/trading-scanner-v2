@@ -1,88 +1,222 @@
 """
-hist_config.py — Historical Backtest System ke liye separate configuration.
-Existing system (config.py) se bilkul independent hai.
-Wohi exact Fibonacci strategy rules, risk parameters aur scoring weights use karta hai.
+hist_config.py — Historical Backtest System Configuration.
+
+Historical backtest ke liye sirf woh settings rakhi gayi hain
+jo historical execution/reporting ke liye specific hain.
+
+IMPORTANT:
+Strategy ke core rules (Fib, scoring, RSI, EMA, ATR, RR, etc.)
+live system ke config.py se liye jayenge, taake historical
+backtest aur live strategy mein mismatch na ho.
 """
 
 import os
 
+
 # ============================================================
 # HISTORICAL BACKTEST DATE RANGE
 # ============================================================
-HIST_START_YEAR  = 2021
+
+HIST_START_YEAR = 2021
 HIST_START_MONTH = 1
-# End: current month automatically detect hoga
+
+# Current month automatically detect hoga.
+# Current month ko complete historical month nahi maana jayega.
+
 
 # ============================================================
-# COIN UNIVERSE (Survivorship-bias-free: sirf woh coins
-# jo 2021 se consistently Binance par listed hain)
+# COIN UNIVERSE
 # ============================================================
+#
+# IMPORTANT:
+# Ye current historical test universe hai.
+# Listing-date filtering ko backtester mein separately handle
+# kiya jayega taake unavailable historical data silently use
+# na ho.
+#
+
 HIST_COIN_UNIVERSE = [
-    "BTC/USDT",  "ETH/USDT",  "BNB/USDT",  "XRP/USDT",  "ADA/USDT",
-    "SOL/USDT",  "DOGE/USDT", "LTC/USDT",  "LINK/USDT", "MATIC/USDT",
-    "AVAX/USDT", "UNI/USDT",  "ATOM/USDT", "XLM/USDT",  "TRX/USDT",
-    "ETC/USDT",  "NEAR/USDT", "ALGO/USDT", "FIL/USDT",  "AAVE/USDT",
+    "BTC/USDT",
+    "ETH/USDT",
+    "BNB/USDT",
+    "XRP/USDT",
+    "ADA/USDT",
+    "SOL/USDT",
+    "DOGE/USDT",
+    "LTC/USDT",
+    "LINK/USDT",
+    "MATIC/USDT",
+    "AVAX/USDT",
+    "UNI/USDT",
+    "ATOM/USDT",
+    "XLM/USDT",
+    "TRX/USDT",
+    "ETC/USDT",
+    "NEAR/USDT",
+    "ALGO/USDT",
+    "FIL/USDT",
+    "AAVE/USDT",
 ]
 
-# ============================================================
-# TIMEFRAMES (same as live system)
-# ============================================================
-TIMEFRAMES = ["4h", "1h"]   # 30m panchani historical data mein sparse hoti hai
 
-TF_SETTINGS = {
-    "4h": {"max_structure_age_bars": 18, "min_score": 70, "zone_tolerance_pct": 0.4, "intermediate_tf": None},
-    "1h": {"max_structure_age_bars": 36, "min_score": 70, "zone_tolerance_pct": 0.3, "intermediate_tf": "4h"},
+# ============================================================
+# TIMEFRAMES
+# ============================================================
+#
+# Historical analysis ke liye 4H aur 1H.
+#
+# IMPORTANT:
+# TF_SETTINGS ki strategy values yahan duplicate nahi ki ja rahi.
+# signal_engine.py live config.py se actual settings lega.
+#
+
+TIMEFRAMES = [
+    "4h",
+    "1h",
+]
+
+
+# ============================================================
+# HISTORICAL DATA FETCH SETTINGS
+# ============================================================
+
+EXCHANGE_PRIORITY = [
+    "kucoin",
+    "okx",
+    "bybit",
+    "gate",
+    "mexc",
+    "binance",
+]
+
+CANDLES_PER_PAGE = 500
+
+# API request ke darmiyan small delay
+REQUEST_DELAY_SECONDS = 0.30
+
+# Failed API request retry delay
+RETRY_DELAY_SECONDS = 5
+
+
+# ============================================================
+# HISTORICAL EXECUTION / TRADE LIFETIME
+# ============================================================
+#
+# Zone qualify hone ke baad future candles mein kitni der tak
+# TP/SL resolve karna hai.
+#
+# Ye structure-age se alag execution lifetime hai.
+#
+
+TRADE_LIFETIME_BARS = {
+    "4h": 54,
+    "1h": 108,
 }
 
-# ============================================================
-# FIBONACCI STRATEGY (EXACT same as live config.py)
-# ============================================================
-FIB_OTE_MIN  = 0.618
-FIB_OTE_MAX  = 0.786
-ALLOWED_FIB_LEVELS = [0.500, 0.618, 0.786]
-
-CONFLUENCE_WEIGHTS = {
-    "ote_zone":             30,
-    "htf_bos_alignment":    25,
-    "volume_expansion":     20,
-    "rsi_divergence_or_os": 15,
-    "prior_level_flip":     10,
-}
-
-RSI_LENGTH                = 14
-RSI_OVERSOLD_THRESHOLD    = 40
-VOLUME_LOOKBACK           = 20
-VOLUME_SPIKE_MULTIPLIER   = 1.5
-EMA_LENGTH                = 50
-EMA_PROXIMITY_PCT         = 0.6
-PRIOR_LEVEL_TOLERANCE_PCT = 0.5
-PIVOT_BUCKETS             = [3, 6, 9, 12]
-PERCENTILE_LOOKBACK       = 200
 
 # ============================================================
-# RISK-REWARD & EXECUTION MODEL (same as live)
+# SAME-CANDLE TP/SL RULE
 # ============================================================
-MIN_RR                = float(os.environ.get("MIN_RR", 1.5))
-STOP_LOSS_ATR_MULT    = 1.5
-MIN_RANGE_PCT         = 1.0
-TP1_SWING_HIGH_FACTOR = 0.90
-TP2_EXTENSION         = 1.618
-BINANCE_FEE_PCT       = 0.075
-SLIPPAGE_PCT          = 0.04
-ENABLE_BTC_REGIME_FILTER = True
-BTC_MAX_1H_DROP_PCT   = 2.0
+#
+# Agar ek hi OHLC candle mein TP aur SL dono touch ho jayein,
+# OHLC data se exact intrabar order pata nahi hota.
+#
+# Conservative backtest ke liye LOSS assume kiya jayega.
+#
+
+SAME_CANDLE_TP_SL_IS_LOSS = True
+
 
 # ============================================================
-# DATA FETCH (Paginated Historical)
+# MARKET CONDITION CLASSIFICATION
 # ============================================================
-EXCHANGE_PRIORITY = ["kucoin", "okx", "bybit", "gate", "mexc", "binance"]
-CANDLES_PER_PAGE  = 500   # Max candles per API call (safe limit)
+
+MARKET_BULL_THRESHOLD_PCT = 3.0
+MARKET_STRONG_BULL_THRESHOLD_PCT = 10.0
+
+MARKET_BEAR_THRESHOLD_PCT = -3.0
+MARKET_STRONG_BEAR_THRESHOLD_PCT = -10.0
+
 
 # ============================================================
-# EMAIL CREDENTIALS (same env vars as live system)
+# COST MODEL
 # ============================================================
-SMTP_HOST         = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT         = int(os.environ.get("SMTP_PORT", 587))
-SMTP_USER         = os.environ.get("SMTP_USER", "")
-SMTP_PASSWORD     = os.environ.get("SMTP_PASSWORD", "")
-REPORT_EMAIL_TO   = os.environ.get("REPORT_EMAIL_TO", "")
+#
+# IMPORTANT:
+# Strategy ka core config config.py se aayega.
+#
+# Ye values historical performance calculation ke liye
+# explicitly define ki ja rahi hain.
+#
+
+BINANCE_FEE_PCT = float(
+    os.environ.get("BINANCE_FEE_PCT", "0.075")
+)
+
+SLIPPAGE_PCT = float(
+    os.environ.get("SLIPPAGE_PCT", "0.04")
+)
+
+
+# ============================================================
+# MINIMUM R:R
+# ============================================================
+#
+# signal_engine.py config.MIN_RR use karta hai.
+#
+# Environment variable yahan sirf reporting / validation ke
+# liye available rakha gaya hai.
+#
+
+MIN_RR = float(
+    os.environ.get("MIN_RR", "1.5")
+)
+
+
+# ============================================================
+# EMAIL CONFIGURATION
+# ============================================================
+
+SMTP_HOST = os.environ.get(
+    "SMTP_HOST",
+    "smtp.gmail.com",
+)
+
+SMTP_PORT = int(
+    os.environ.get("SMTP_PORT", "587")
+)
+
+SMTP_USER = os.environ.get(
+    "SMTP_USER",
+    "",
+)
+
+SMTP_PASSWORD = os.environ.get(
+    "SMTP_PASSWORD",
+    "",
+)
+
+REPORT_EMAIL_TO = os.environ.get(
+    "REPORT_EMAIL_TO",
+    "",
+)
+
+
+# ============================================================
+# REPORT CONFIGURATION
+# ============================================================
+
+REPORT_START_YEAR = HIST_START_YEAR
+
+REPORT_TITLE = (
+    "Historical Backtest — Fibonacci Intraday Strategy"
+)
+
+REPORT_TIMEZONE = "UTC"
+
+
+# ============================================================
+# LOGGING
+# ============================================================
+
+LOG_FILE_NAME = "hist_backtest.log"
