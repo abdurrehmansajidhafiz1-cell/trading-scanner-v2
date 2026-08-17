@@ -1,69 +1,48 @@
 name: "Historical Backtest — 5-Year Analysis (Fibonacci Strategy)"
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:   # Sirf manually trigger hoga (automatic nahi)
 
 concurrency:
   group: historical-backtest-run
-  cancel-in-progress: false
+  cancel-in-progress: false   # Agar already chal rahi ho to naya cancel karo
 
 jobs:
   historical-backtest:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 360      # Max 6 ghante (5-year data + analysis ke liye sufficient)
 
     steps:
-      # ============================================================
-      # 1. Repository Checkout
-      # ============================================================
       - name: Repository checkout karo
         uses: actions/checkout@v4
 
-      # ============================================================
-      # 2. Python Setup
-      # ============================================================
       - name: Python 3.11 setup karo
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # ============================================================
-      # 3. Dependencies
-      # ============================================================
       - name: Dependencies install karo
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
-      # ============================================================
-      # 4. Existing System Verification
-      # ============================================================
-      - name: Offline tests run karo
+      - name: Offline tests run karo (existing system verify)
         run: python test_offline.py
 
-      # ============================================================
-      # 5. Historical Backtest
-      # ============================================================
       - name: 5-Year Historical Backtest chalao
         env:
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          REPORT_EMAIL_TO: ${{ secrets.REPORT_EMAIL_TO }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          MIN_RR: ${{ secrets.MIN_RR }}
+          SMTP_USER:             ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD:         ${{ secrets.SMTP_PASSWORD }}
+          REPORT_EMAIL_TO:       ${{ secrets.REPORT_EMAIL_TO }}
+          SMTP_HOST:             ${{ secrets.SMTP_HOST }}
+          SMTP_PORT:             ${{ secrets.SMTP_PORT }}
+          MIN_RR:                ${{ secrets.MIN_RR }}
         run: |
-          cd historical_backtest
+          cd trading_scanner/historical_backtest
           python run_historical_backtest.py
 
-      # ============================================================
-      # 6. Backtest Log ko Artifact ke taur par save karo
-      # ============================================================
-      - name: Backtest log save karo
+      - name: Backtest log save karo (taake GitHub mein readable rahe)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: historical-backtest-log
-          path: historical_backtest/hist_backtest.log
+          path: trading_scanner/historical_backtest/hist_backtest.log
           retention-days: 30
-          if-no-files-found: warn
