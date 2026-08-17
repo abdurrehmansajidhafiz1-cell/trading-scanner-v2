@@ -1,479 +1,91 @@
 """
 hist_backtester.py — Month-by-Month + Day-by-Day Historical Backtest Engine.
-
-Purpose:
-- Existing live signal_engine.py ko historical replay mein use karna.
-- Zero look-ahead bias maintain karna.
-- Har candle par sirf us waqt tak available data use karna.
-- Qualified zones ko future candles ke against resolve karna.
-- Same-candle TP + SL ko conservative LOSS count karna.
-- Trade lifetime ko structure-age se independently handle karna.
-- Monthly metrics + day-by-day breakdown provide karna.
+Bilkul same Fibonacci strategy rules use karta hai jo live 15-day system mein hain.
+Zero look-ahead bias: har candle sirf apne time tak ka data dekhti hai.
+Existing backtester.py se bilkul independent hai.
 """
 
 import sys
 import os
 import logging
+from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 
 import pandas as pd
 import numpy as np
 
-
-# ============================================================
-# PATH SETUP
-# ============================================================
-
-PARENT_DIR = os.path.dirname(
-    os.path.dirname(os.path.abspath(__file__))
-)
-
-SELF_DIR = os.path.dirname(
-    os.path.abspath(__file__)
-)
-
-sys.path.insert(0, PARENT_DIR)
-sys.path.insert(0, SELF_DIR)
-
-
-# ============================================================
-# LIVE STRATEGY ENGINE
-# ============================================================
+# Parent directory ko sys.path mein add karo taake signal_engine import ho sake
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from signal_engine import analyze
-
 
 logger = logging.getLogger("hist_backtest")
 
 
-# ============================================================
-# TIMESTAMP HELPERS
-# ============================================================
-
-def _normalize_timestamp(ts):
-    """Timestamp ko UTC-aware pandas Timestamp mein convert karta hai."""
-
-    if ts is None:
-        return None
-
-    try:
-        result = pd.Timestamp(ts)
-
-        if result.tzinfo is None:
-            result = result.tz_localize("UTC")
-        else:
-            result = result.tz_convert("UTC")
-
-        return result
-
-    except Exception:
-        return None
+def _truncate_to(df: pd.DataFrame, cutoff_time) -> pd.DataFrame:
+    """Look-ahead bias prevention: sirf cutoff_time tak ki candles rakhta hai."""
+    return df[df["timestamp"] <= cutoff_time].reset_index(drop=True)
 
 
-def _ensure_timestamp_column(df):
-    """DataFrame ki timestamp column ko UTC-aware banata hai."""
-
-    if df is None:
-        return None
-
-    if df.empty:
-        return df.copy()
-
-    result = df.copy()
-
-    if "timestamp" not in result.columns:
-        return result
-
-    try:
-        result["timestamp"] = pd.to_datetime(
-            result["timestamp"],
-            utc=True,
-        )
-    except Exception:
-        pass
-
-    return result
-
-
-# ============================================================
-# LOOK-AHEAD PROTECTION
-# ============================================================
-
-def _truncate_to(
-    df: pd.DataFrame | None,
-    cutoff_time,
-) -> pd.DataFrame | None:
-    """
-    Sirf woh candles return karta hai jo cutoff_time tak
-    available hain.
-
-    Look-ahead bias prevention ke liye use hota hai.
-    """
-
-    if df is None:
-        return None
-
-    if df.empty:
-        return df.copy()
-
-    cutoff = _normalize_timestamp(cutoff_time)
-
-    if cutoff is None:
-        return df.copy()
-
-    temp = _ensure_timestamp_column(df)
-
-    try:
-        temp = temp[
-            temp["timestamp"] <= cutoff
-        ].copy()
-    except Exception:
-        return df.copy()
-
-    return temp.reset_index(drop=True)
-
-
-# ============================================================
-# MARKET CLASSIFICATION
-# ============================================================
-
-def _classify_month_market(
-    df_daily: pd.DataFrame,
-) -> str:
-    """
-    Daily price movement ke basis par month classify karta hai.
-
-        > +10%  = STRONG BULL
-        > +3%   = BULL
-        < -10%  = STRONG BEAR
-        < -3%   = BEAR
-        else    = SIDEWAYS / CONSOLIDATION
-    """
-
-    if df_daily is None or df_daily.empty:
+def _classify_month_market(df_daily: pd.DataFrame) -> str:
+    """Month ke overall market condition classify karta hai (Bull/Bear/Sideways)."""
+    if len(df_daily) < 5:
         return "UNKNOWN"
-
-    if "close" not in df_daily.columns:
-        return "UNKNOWN"
-
-    if len(df_daily) < 2:
-        return "UNKNOWN"
-
-    try:
-        start_price = float(
-            df_daily["close"].iloc[0]
-        )
-
-        end_price = float(
-            df_daily["close"].iloc[-1]
-        )
-
-    except Exception:
-        return "UNKNOWN"
-
-    if start_price <= 0:
-        return "UNKNOWN"
-
-    change_pct = (
-        (end_price - start_price)
-        / start_price
-        * 100.0
-    )
-
-    if change_pct > 10.0:
+    start_price = df_daily["close"].iloc[0]
+    end_price   = df_daily["close"].iloc[-1]
+    change_pct  = (end_price - start_price) / start_price * 100
+    if change_pct > 10:
         return "STRONG BULL"
-
-    if change_pct > 3.0:
+    elif change_pct > 3:
         return "BULL"
-
-    if change_pct < -10.0:
+    elif change_pct < -10:
         return "STRONG BEAR"
-
-    if change_pct < -3.0:
+    elif change_pct < -3:
         return "BEAR"
+    else:
+        return "SIDEWAYS / CONSOLIDATION"
 
-    return "SIDEWAYS / CONSOLIDATION"
 
-
-# ============================================================
-# ZONE RESOLUTION
-# ============================================================
-
-def _resolve_zone(
-    zone: dict,
-    df_after_entry: pd.DataFrame,
-    tf_cfg: dict,
-    max_lifetime_bars: int,
-    same_candle_tp_sl_is_loss: bool = True,
-) -> dict:
+def _resolve_zone(zone: dict, df_after_entry: pd.DataFrame, tf_cfg: dict) -> dict:
     """
-    Qualified zone ko future candles ke against resolve karta hai.
-
-    Possible statuses:
-
-        WIN
-        LOSS
-        EXPIRED
-        TIMEOUT
-        PENDING
-
-    Conservative rule:
-
-        Same candle mein TP aur SL dono hit hon
-        to LOSS count hoga.
+    Zone ko price action ke against test karta hai.
+    Returns: updated zone with status (WIN/LOSS/EXPIRED/TIMEOUT)
     """
+    touched    = False
+    touched_at = None
+    age_limit  = tf_cfg["max_structure_age_bars"] * 3
 
-    if (
-        df_after_entry is None
-        or df_after_entry.empty
-    ):
-        zone["status"] = "PENDING"
-        zone["resolved_at"] = None
-        zone["resolution_reason"] = (
-            "NO_FUTURE_DATA"
-        )
-        return zone
-
-    try:
-        entry_price = float(
-            zone["entry_price"]
-        )
-
-        stop_price = float(
-            zone["stop_price"]
-        )
-
-        target_price = float(
-            zone["target_price"]
-        )
-
-    except Exception:
-        zone["status"] = "PENDING"
-        zone["resolved_at"] = None
-        zone["resolution_reason"] = (
-            "INVALID_EXECUTION_VALUES"
-        )
-        return zone
-
-    try:
-        max_lifetime_bars = max(
-            1,
-            int(max_lifetime_bars),
-        )
-    except Exception:
-        max_lifetime_bars = 1
-
-    future_df = _ensure_timestamp_column(
-        df_after_entry
-    )
-
-    # --------------------------------------------------------
-    # Zone tolerance
-    # --------------------------------------------------------
-
-    try:
-        tolerance_pct = float(
-            tf_cfg.get(
-                "zone_tolerance_pct",
-                0.0,
-            )
-        )
-    except Exception:
-        tolerance_pct = 0.0
-
-    touch_upper = (
-        entry_price
-        * (
-            1.0
-            + tolerance_pct / 100.0
-        )
-    )
-
-    touch_lower = (
-        entry_price
-        * (
-            1.0
-            - tolerance_pct / 100.0
-        )
-    )
-
-    touched = False
-
-    # --------------------------------------------------------
-    # Future candle replay
-    # --------------------------------------------------------
-
-    for idx, (_, candle) in enumerate(
-        future_df.iterrows()
-    ):
-
-        try:
-            candle_low = float(
-                candle["low"]
-            )
-
-            candle_high = float(
-                candle["high"]
-            )
-
-        except Exception:
-            continue
-
-        candle_time = str(
-            candle["timestamp"]
-        )
-
-        # ----------------------------------------------------
-        # Zone touch
-        # ----------------------------------------------------
-
+    for idx, (_, candle) in enumerate(df_after_entry.iterrows()):
         if not touched:
-
-            zone_touched = (
-                candle_low <= touch_upper
-                and
-                candle_high >= touch_lower
-            )
-
-            if zone_touched:
-
-                touched = True
-
-                zone["touched_at"] = (
-                    candle_time
-                )
-
-        # ----------------------------------------------------
-        # TP / SL after entry
-        # ----------------------------------------------------
+            touch_threshold = zone["entry_price"] * (1 + tf_cfg["zone_tolerance_pct"] / 100)
+            if candle["low"] <= touch_threshold:
+                touched    = True
+                touched_at = str(candle["timestamp"])
+                zone["touched_at"] = touched_at
 
         if touched:
-
-            hit_target = (
-                candle_high >= target_price
-            )
-
-            hit_stop = (
-                candle_low <= stop_price
-            )
-
-            # ------------------------------------------------
-            # Same candle TP + SL
-            # ------------------------------------------------
-
-            if hit_target and hit_stop:
-
-                if same_candle_tp_sl_is_loss:
-
-                    zone["status"] = "LOSS"
-
-                    zone["resolution_reason"] = (
-                        "SAME_CANDLE_TP_SL"
-                    )
-
-                else:
-
-                    zone["status"] = "WIN"
-
-                    zone["resolution_reason"] = (
-                        "SAME_CANDLE_TP_SL_TARGET_FIRST"
-                    )
-
-                zone["resolved_at"] = (
-                    candle_time
-                )
-
+            if candle["high"] >= zone["target_price"]:
+                zone["status"]      = "WIN"
+                zone["resolved_at"] = str(candle["timestamp"])
+                return zone
+            elif candle["low"] <= zone["stop_price"]:
+                zone["status"]      = "LOSS"
+                zone["resolved_at"] = str(candle["timestamp"])
                 return zone
 
-            # ------------------------------------------------
-            # Target hit
-            # ------------------------------------------------
-
-            if hit_target:
-
-                zone["status"] = "WIN"
-
-                zone["resolution_reason"] = (
-                    "TARGET_HIT"
-                )
-
-                zone["resolved_at"] = (
-                    candle_time
-                )
-
-                return zone
-
-            # ------------------------------------------------
-            # Stop hit
-            # ------------------------------------------------
-
-            if hit_stop:
-
-                zone["status"] = "LOSS"
-
-                zone["resolution_reason"] = (
-                    "STOP_HIT"
-                )
-
-                zone["resolved_at"] = (
-                    candle_time
-                )
-
-                return zone
-
-        # ----------------------------------------------------
-        # Lifetime
-        # ----------------------------------------------------
-
-        if idx + 1 >= max_lifetime_bars:
-
-            if touched:
-
-                zone["status"] = "TIMEOUT"
-
-                zone["resolution_reason"] = (
-                    "TRADE_LIFETIME_EXCEEDED"
-                )
-
+        if idx > age_limit:
+            if not touched:
+                zone["status"]      = "EXPIRED"
+                zone["resolved_at"] = str(candle["timestamp"])
             else:
-
-                zone["status"] = "EXPIRED"
-
-                zone["resolution_reason"] = (
-                    "ZONE_NOT_TOUCHED"
-                )
-
-            zone["resolved_at"] = (
-                candle_time
-            )
-
+                zone["status"]      = "TIMEOUT"
+                zone["resolved_at"] = str(candle["timestamp"])
             return zone
 
-    # --------------------------------------------------------
-    # Future data ended
-    # --------------------------------------------------------
-
-    zone["status"] = "PENDING"
+    zone["status"]      = "PENDING"
     zone["resolved_at"] = None
-
-    if touched:
-
-        zone["resolution_reason"] = (
-            "FUTURE_DATA_ENDED_AFTER_TOUCH"
-        )
-
-    else:
-
-        zone["resolution_reason"] = (
-            "FUTURE_DATA_ENDED_BEFORE_TOUCH"
-        )
-
     return zone
 
-
-# ============================================================
-# SINGLE COIN / MONTH BACKTEST
-# ============================================================
 
 def backtest_single_coin_month(
     df_main: pd.DataFrame,
@@ -482,669 +94,151 @@ def backtest_single_coin_month(
     df_btc_1h: pd.DataFrame | None,
     coin: str,
     timeframe: str,
-    month_start,
-    month_end,
+    month_start: datetime,
+    month_end: datetime,
     tf_cfg: dict,
-    max_lifetime_bars: int | None = None,
-    same_candle_tp_sl_is_loss: bool = True,
 ) -> list[dict]:
     """
-    Ek coin + ek timeframe + ek month ka
-    candle-by-candle historical replay.
-
-    Har candle par:
-
-        historical slice
-             ↓
-        signal_engine.analyze()
-             ↓
-        qualified?
-             ↓
-        future candles
-             ↓
-        WIN / LOSS / EXPIRED / TIMEOUT / PENDING
+    Ek coin ka ek month ka candle-by-candle backtest chalata hai.
+    Returns: list of zone dicts (har zone mein status, scores, timestamps)
     """
-
-    if df_main is None:
-        return []
-
-    if df_main.empty:
-        return []
-
     if len(df_main) < 100:
         return []
 
-    # --------------------------------------------------------
-    # Normalize main dataframe
-    # --------------------------------------------------------
+    # Sirf is month ke indices
+    month_start_ts = pd.Timestamp(month_start)
+    month_end_ts   = pd.Timestamp(month_end)
 
-    main_df = _ensure_timestamp_column(
-        df_main
-    )
-
-    if "timestamp" not in main_df.columns:
-        logger.error(
-            "%s[%s]: timestamp column missing.",
-            coin,
-            timeframe,
-        )
-        return []
-
-    main_df = (
-        main_df
-        .sort_values("timestamp")
-        .reset_index(drop=True)
-    )
-
-    # --------------------------------------------------------
-    # Default trade lifetime
-    # --------------------------------------------------------
-
-    if max_lifetime_bars is None:
-
-        try:
-            structure_age = int(
-                tf_cfg.get(
-                    "max_structure_age_bars",
-                    18,
-                )
-            )
-        except Exception:
-            structure_age = 18
-
-        max_lifetime_bars = max(
-            1,
-            structure_age * 3,
-        )
-
-    # --------------------------------------------------------
-    # Month boundaries
-    # --------------------------------------------------------
-
-    month_start_ts = _normalize_timestamp(
-        month_start
-    )
-
-    month_end_ts = _normalize_timestamp(
-        month_end
-    )
-
-    if (
-        month_start_ts is None
-        or month_end_ts is None
-    ):
-        return []
-
-    # --------------------------------------------------------
-    # Current month candles
-    # --------------------------------------------------------
-
-    month_mask = (
-        (main_df["timestamp"] >= month_start_ts)
-        &
-        (main_df["timestamp"] < month_end_ts)
-    )
-
-    month_candles = main_df[
-        month_mask
+    month_candles = df_main[
+        (df_main["timestamp"] >= month_start_ts) &
+        (df_main["timestamp"] <  month_end_ts)
     ]
 
-    if month_candles.empty:
+    if len(month_candles) == 0:
         return []
 
     zones_found = []
+    last_recorded_zone_price = None
 
-    # --------------------------------------------------------
-    # Duplicate protection
-    # --------------------------------------------------------
-
-    recorded_zone_keys = set()
-
-    # --------------------------------------------------------
-    # Candle-by-candle replay
-    # --------------------------------------------------------
-
-    for abs_idx in month_candles.index:
-
-        candle = main_df.iloc[
-            abs_idx
-        ]
-
-        candle_time = candle[
-            "timestamp"
-        ]
-
-        # ----------------------------------------------------
-        # Historical main timeframe slice
-        # ----------------------------------------------------
-
-        df_slice = (
-            main_df.iloc[
-                :abs_idx + 1
-            ]
-            .copy()
-            .reset_index(drop=True)
-        )
-
-        # ----------------------------------------------------
-        # Higher timeframe slices
-        # ----------------------------------------------------
-
-        df_daily_slice = _truncate_to(
-            df_daily,
-            candle_time,
-        )
-
-        df_inter_slice = _truncate_to(
-            df_intermediate,
-            candle_time,
-        )
-
-        df_btc_slice = _truncate_to(
-            df_btc_1h,
-            candle_time,
-        )
-
-        # ----------------------------------------------------
-        # Previous swing state
-        # ----------------------------------------------------
-
-        prev_state = None
-
-        # Signal engine accepts previous swing state,
-        # but historical replay does not inject future values.
-        #
-        # We intentionally keep this None unless a valid
-        # state is available from current historical context.
-
-        # ----------------------------------------------------
-        # Signal Engine
-        # ----------------------------------------------------
-
-        try:
-
-            result = analyze(
-                coin=coin,
-                timeframe=timeframe,
-                df=df_slice,
-                df_daily=(
-                    df_daily_slice
-                    if df_daily_slice is not None
-                    else main_df.head(0)
-                ),
-                df_intermediate=df_inter_slice,
-                prev_swing_state=prev_state,
-                df_btc=df_btc_slice,
-            )
-
-        except Exception as e:
-
-            logger.warning(
-                "analyze() failed: "
-                "%s[%s] %s: %s: %s",
-                coin,
-                timeframe,
-                candle_time,
-                type(e).__name__,
-                e,
-            )
-
+    for i, (_, _candle) in enumerate(month_candles.iterrows()):
+        candle_time = _candle["timestamp"]
+        candle_idx  = df_main.index[df_main["timestamp"] == candle_time].tolist()
+        if not candle_idx:
             continue
+        abs_idx = candle_idx[0]
 
-        # ----------------------------------------------------
-        # Only qualified signals
-        # ----------------------------------------------------
+        df_slice           = df_main.iloc[: abs_idx + 1].reset_index(drop=True)
+        df_daily_slice     = _truncate_to(df_daily, candle_time)
+        df_inter_slice     = _truncate_to(df_intermediate, candle_time) if df_intermediate is not None else None
+        df_btc_slice       = _truncate_to(df_btc_1h, candle_time) if df_btc_1h is not None else None
 
-        if not result.qualifies:
-            continue
+        prev_state = {
+            "last_recorded_zone_price": last_recorded_zone_price,
+            "swing_high": None, "swing_low": None,
+            "swing_high_time": None, "swing_low_time": None,
+        } if last_recorded_zone_price else None
 
-        # ----------------------------------------------------
-        # Required execution values
-        # ----------------------------------------------------
+        result = analyze(coin, timeframe, df_slice, df_daily_slice, df_inter_slice, prev_state, df_btc_slice)
 
-        if (
-            result.best_zone_price is None
-            or result.stop_price is None
-            or result.target_price is None
-            or result.actual_rr is None
-        ):
+        if result.qualifies and result.best_zone_price != last_recorded_zone_price:
+            last_recorded_zone_price = result.best_zone_price
 
-            logger.warning(
-                "Qualified signal missing execution values: "
-                "%s[%s] %s",
-                coin,
-                timeframe,
-                candle_time,
-            )
-
-            continue
-
-        # ----------------------------------------------------
-        # Numeric validation
-        # ----------------------------------------------------
-
-        try:
-
-            zone_price = float(
-                result.best_zone_price
-            )
-
-            stop_price = float(
-                result.stop_price
-            )
-
-            target_price = float(
-                result.target_price
-            )
-
-            actual_rr = float(
-                result.actual_rr
-            )
-
-        except Exception:
-
-            logger.warning(
-                "Invalid execution values: "
-                "%s[%s] %s",
-                coin,
-                timeframe,
-                candle_time,
-            )
-
-            continue
-
-        # ----------------------------------------------------
-        # Duplicate setup key
-        # ----------------------------------------------------
-
-        structure_key = (
-            str(result.swing_high_time),
-            str(result.swing_low_time),
-            result.best_zone_name,
-            round(zone_price, 10),
-        )
-
-        if structure_key in recorded_zone_keys:
-            continue
-
-        recorded_zone_keys.add(
-            structure_key
-        )
-
-        # ----------------------------------------------------
-        # Future candles
-        #
-        # Current candle intentionally excluded.
-        # ----------------------------------------------------
-
-        df_after = (
-            main_df.iloc[
-                abs_idx + 1:
-            ]
-            .copy()
-            .reset_index(drop=True)
-        )
-
-        # ----------------------------------------------------
-        # Zone object
-        # ----------------------------------------------------
-
-        zone = {
-            "coin": coin,
-
-            "timeframe": timeframe,
-
-            "created_at": str(
-                candle_time
-            ),
-
-            "entry_price": zone_price,
-
-            "stop_price": stop_price,
-
-            "target_price": target_price,
-
-            "tp2_price": (
-                float(result.tp2_price)
-                if result.tp2_price is not None
-                else None
-            ),
-
-            "swing_low": (
-                float(result.swing_low)
-                if result.swing_low is not None
-                else None
-            ),
-
-            "swing_high": (
-                float(result.swing_high)
-                if result.swing_high is not None
-                else None
-            ),
-
-            "swing_low_time":
-                result.swing_low_time,
-
-            "swing_high_time":
-                result.swing_high_time,
-
-            "structure_created_at":
-                result.structure_created_at,
-
-            "score": int(
-                result.best_score
-            ),
-
-            "actual_rr": actual_rr,
-
-            "level_name":
-                result.best_zone_name,
-
-            "score_breakdown":
-                result.score_breakdown,
-
-            "status":
-                "PENDING",
-
-            "touched_at":
-                None,
-
-            "resolved_at":
-                None,
-
-            "resolution_reason":
-                None,
-        }
-
-        # ----------------------------------------------------
-        # Resolve
-        # ----------------------------------------------------
-
-        zone = _resolve_zone(
-            zone=zone,
-            df_after_entry=df_after,
-            tf_cfg=tf_cfg,
-            max_lifetime_bars=max_lifetime_bars,
-            same_candle_tp_sl_is_loss=same_candle_tp_sl_is_loss,
-        )
-
-        zones_found.append(zone)
+            # Resolve zone against future candles
+            df_after = df_main.iloc[abs_idx + 1:].reset_index(drop=True)
+            zone = {
+                "coin":         coin,
+                "timeframe":    timeframe,
+                "created_at":   str(candle_time),
+                "entry_price":  result.best_zone_price,
+                "stop_price":   result.stop_price,
+                "target_price": result.target_price,
+                "swing_low":    result.swing_low,
+                "swing_high":   result.swing_high,
+                "score":        result.best_score,
+                "actual_rr":    result.actual_rr,
+                "level_name":   result.best_zone_name,
+                "score_breakdown": result.score_breakdown,
+                "status":       "PENDING",
+                "touched_at":   None,
+                "resolved_at":  None,
+            }
+            zone = _resolve_zone(zone, df_after, tf_cfg)
+            zones_found.append(zone)
 
     return zones_found
 
 
-# ============================================================
-# TRADE COST HELPER (fees + slippage, in R terms)
-# ============================================================
+def compute_month_metrics(zones: list[dict], fee_pct: float = 0.075, slip_pct: float = 0.04) -> dict:
+    """Month ke zones se complete performance metrics calculate karta hai."""
+    wins   = [z for z in zones if z["status"] == "WIN"]
+    losses = [z for z in zones if z["status"] == "LOSS"]
+    resolved = wins + losses
 
-def _trade_cost_r(
-    zone: dict,
-    fee_pct: float,
-    slippage_pct: float,
-) -> float:
-    """
-    Ek trade ka round-trip fee + slippage cost
-    R-multiple mein convert karta hai.
+    total_cost_pct = (fee_pct + slip_pct) / 100 * 2   # round-trip
 
-    Risk distance (entry vs stop) ke against
-    cost % ko normalize kiya jata hai.
-    """
+    win_r  = sum(z["actual_rr"] - total_cost_pct for z in wins)
+    loss_r = sum(-1.0 - total_cost_pct for z in losses)
+    net_pnl_r = win_r + loss_r
 
-    try:
-        entry = float(zone["entry_price"])
-        stop = float(zone["stop_price"])
-    except Exception:
-        return 0.0
+    win_rate = (len(wins) / len(resolved) * 100) if resolved else 0.0
+    profit_factor = (win_r / abs(loss_r)) if abs(loss_r) > 0 else (float("inf") if win_r > 0 else 1.0)
 
-    if entry <= 0:
-        return 0.0
+    # Max drawdown calculation
+    running_r  = 0.0
+    peak_r     = 0.0
+    max_dd     = 0.0
+    consec_wins = consec_losses = 0
+    max_consec_wins = max_consec_losses = 0
+    streak_w = streak_l = 0
 
-    risk_pct = abs(entry - stop) / entry * 100.0
+    for z in zones:
+        if z["status"] == "WIN":
+            running_r += z["actual_rr"] - total_cost_pct
+            streak_w  += 1
+            streak_l   = 0
+        elif z["status"] == "LOSS":
+            running_r += -1.0 - total_cost_pct
+            streak_l  += 1
+            streak_w   = 0
 
-    if risk_pct <= 0:
-        return 0.0
-
-    # Round-trip = entry fee + exit fee
-    total_cost_pct = (
-        (2 * fee_pct)
-        + slippage_pct
-    )
-
-    return total_cost_pct / risk_pct
-
-
-# ============================================================
-# MONTH METRICS
-# ============================================================
-#
-# IMPORTANT: Ye keys hist_reporter.py ke render_month_section(),
-# render_year_summary(), aur render_overall_summary() ke saath
-# EXACTLY match honi chahiye:
-#
-#   total_trades, wins, losses, expired, timed_out, pending,
-#   win_rate_pct, net_pnl_r, profit_factor,
-#   max_drawdown_r, max_consec_wins, max_consec_losses
-#
-
-def compute_month_metrics(
-    zones: list[dict],
-    fee_pct: float = 0.0,
-    slippage_pct: float = 0.0,
-) -> dict:
-    """
-    Zones ki list se aggregate metrics banata hai
-    (win rate, net P&L, profit factor, drawdown, streaks).
-
-    NOTE: Ye reconstruction hai — original source code
-    available nahi tha. R-multiple formula ya fee handling
-    agar aapki asal strategy se mismatch kare to adjust karna.
-    """
-
-    total_trades = 0
-    wins = 0
-    losses = 0
-    expired = 0
-    timed_out = 0
-    pending = 0
-
-    # Chronological resolved trades: (created_at, net_r)
-    resolved_trades = []
-
-    for zone in zones:
-
-        status = zone.get("status")
-
-        if status == "WIN":
-
-            total_trades += 1
-            wins += 1
-
-            try:
-                rr = float(zone.get("actual_rr") or 0.0)
-            except Exception:
-                rr = 0.0
-
-            cost = _trade_cost_r(
-                zone, fee_pct, slippage_pct
-            )
-
-            resolved_trades.append(
-                (zone.get("created_at", ""), rr - cost)
-            )
-
-        elif status == "LOSS":
-
-            total_trades += 1
-            losses += 1
-
-            cost = _trade_cost_r(
-                zone, fee_pct, slippage_pct
-            )
-
-            resolved_trades.append(
-                (zone.get("created_at", ""), -1.0 - cost)
-            )
-
-        elif status == "TIMEOUT":
-            timed_out += 1
-
-        elif status == "EXPIRED":
-            expired += 1
-
-        elif status == "PENDING":
-            pending += 1
-
-    resolved_trades.sort(key=lambda x: x[0])
-
-    net_pnl_r = sum(r for _, r in resolved_trades)
-
-    gross_profit = sum(
-        r for _, r in resolved_trades if r > 0
-    )
-    gross_loss = sum(
-        r for _, r in resolved_trades if r < 0
-    )
-
-    if gross_loss == 0:
-        profit_factor = (
-            float("inf") if gross_profit > 0 else 0.0
-        )
-    else:
-        profit_factor = gross_profit / abs(gross_loss)
-
-    win_rate_pct = (
-        (wins / total_trades * 100.0)
-        if total_trades > 0
-        else 0.0
-    )
-
-    # ----------------------------------------------------
-    # Drawdown + consecutive streaks (chronological)
-    # ----------------------------------------------------
-
-    equity = 0.0
-    peak = 0.0
-    max_dd = 0.0
-
-    cur_win_streak = 0
-    cur_loss_streak = 0
-    max_consec_wins = 0
-    max_consec_losses = 0
-
-    for _, r in resolved_trades:
-
-        equity += r
-
-        if equity > peak:
-            peak = equity
-
-        dd = peak - equity
-
-        if dd > max_dd:
-            max_dd = dd
-
-        if r > 0:
-            cur_win_streak += 1
-            cur_loss_streak = 0
-        elif r < 0:
-            cur_loss_streak += 1
-            cur_win_streak = 0
-        else:
-            cur_win_streak = 0
-            cur_loss_streak = 0
-
-        max_consec_wins = max(
-            max_consec_wins, cur_win_streak
-        )
-        max_consec_losses = max(
-            max_consec_losses, cur_loss_streak
-        )
+        peak_r = max(peak_r, running_r)
+        max_dd = max(max_dd, peak_r - running_r)
+        max_consec_wins   = max(max_consec_wins,   streak_w)
+        max_consec_losses = max(max_consec_losses, streak_l)
 
     return {
-        "total_trades": total_trades,
-        "wins": wins,
-        "losses": losses,
-        "expired": expired,
-        "timed_out": timed_out,
-        "pending": pending,
-        "win_rate_pct": round(win_rate_pct, 2),
-        "net_pnl_r": round(net_pnl_r, 4),
-        "profit_factor": profit_factor,
-        "max_drawdown_r": round(max_dd, 4),
-        "max_consec_wins": max_consec_wins,
-        "max_consec_losses": max_consec_losses,
+        "total_trades":         len(zones),
+        "wins":                 len(wins),
+        "losses":               len(losses),
+        "expired":              sum(1 for z in zones if z["status"] == "EXPIRED"),
+        "timed_out":            sum(1 for z in zones if z["status"] == "TIMEOUT"),
+        "pending":              sum(1 for z in zones if z["status"] == "PENDING"),
+        "win_rate_pct":         win_rate,
+        "net_pnl_r":            net_pnl_r,
+        "profit_factor":        profit_factor,
+        "max_drawdown_r":       max_dd,
+        "max_consec_wins":      max_consec_wins,
+        "max_consec_losses":    max_consec_losses,
     }
 
 
-# ============================================================
-# DAY-BY-DAY BREAKDOWN
-# ============================================================
-#
-# IMPORTANT: Ye keys hist_reporter.py ke render_day_table()
-# ke saath EXACTLY match honi chahiye: zones, wins, losses, pnl_r
-#
+def compute_day_breakdown(zones: list[dict]) -> dict:
+    """Month ke zones ko day-by-day breakdown mein aggregate karta hai."""
+    day_data = defaultdict(lambda: {"zones": 0, "wins": 0, "losses": 0, "pnl_r": 0.0})
 
-def compute_day_breakdown(
-    zones: list[dict],
-) -> dict:
-    """
-    Zones ko "created_at" date ke hisaab se group karke
-    har din ke breakdown return karta hai.
+    total_cost_pct = (0.075 + 0.04) / 100 * 2
 
-    NOTE: Fees/slippage yahan include nahi kiye
-    (caller sirf zones pass karta hai, fee args nahi deta).
-    """
-
-    daily_zones = defaultdict(list)
-
-    for zone in zones:
-
-        created_at = zone.get("created_at")
-
-        if not created_at:
+    for z in zones:
+        try:
+            day_str = str(z["created_at"])[:10]
+        except Exception:
             continue
+        day_data[day_str]["zones"] += 1
+        if z["status"] == "WIN":
+            day_data[day_str]["wins"]  += 1
+            day_data[day_str]["pnl_r"] += z["actual_rr"] - total_cost_pct
+        elif z["status"] == "LOSS":
+            day_data[day_str]["losses"] += 1
+            day_data[day_str]["pnl_r"]  += -1.0 - total_cost_pct
 
-        day_key = str(created_at)[:10]
-
-        daily_zones[day_key].append(zone)
-
-    breakdown = {}
-
-    for day_key in sorted(daily_zones.keys()):
-
-        day_zones = daily_zones[day_key]
-
-        wins = sum(
-            1 for z in day_zones
-            if z.get("status") == "WIN"
-        )
-
-        losses = sum(
-            1 for z in day_zones
-            if z.get("status") == "LOSS"
-        )
-
-        pnl_r = 0.0
-
-        for z in day_zones:
-
-            if z.get("status") == "WIN":
-
-                try:
-                    pnl_r += float(
-                        z.get("actual_rr") or 0.0
-                    )
-                except Exception:
-                    pass
-
-            elif z.get("status") == "LOSS":
-                pnl_r += -1.0
-
-        breakdown[day_key] = {
-            "zones": len(day_zones),
-            "wins": wins,
-            "losses": losses,
-            "pnl_r": round(pnl_r, 4),
-        }
-
-    return breakdown
+    return dict(sorted(day_data.items()))
