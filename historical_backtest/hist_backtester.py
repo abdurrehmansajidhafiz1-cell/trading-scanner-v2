@@ -2,13 +2,13 @@
 hist_backtester.py — Month-by-Month + Day-by-Day Historical Backtest Engine.
 
 Purpose:
-- Existing live signal_engine.py ko use karke historical replay karna.
+- Existing live signal_engine.py ko historical replay mein use karna.
 - Zero look-ahead bias maintain karna.
 - Har candle par sirf us waqt tak available data use karna.
 - Qualified zones ko future candles ke against resolve karna.
 - Same-candle TP + SL ko conservative LOSS count karna.
 - Trade lifetime ko structure-age se independently handle karna.
-- Monthly aur day-by-day performance metrics generate karna.
+- Monthly metrics + day-by-day breakdown provide karna.
 """
 
 import sys
@@ -28,7 +28,12 @@ PARENT_DIR = os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))
 )
 
+SELF_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
+
 sys.path.insert(0, PARENT_DIR)
+sys.path.insert(0, SELF_DIR)
 
 
 # ============================================================
@@ -42,7 +47,32 @@ logger = logging.getLogger("hist_backtest")
 
 
 # ============================================================
-# HELPERS
+# HELPER — TIMESTAMP NORMALIZATION
+# ============================================================
+
+def _normalize_timestamp(ts):
+    """
+    Timestamp ko pandas Timestamp mein normalize karta hai.
+    """
+
+    if ts is None:
+        return None
+
+    try:
+        result = pd.Timestamp(ts)
+
+        # Naive timestamp ko UTC assume karo.
+        if result.tzinfo is None:
+            result = result.tz_localize("UTC")
+
+        return result
+
+    except Exception:
+        return None
+
+
+# ============================================================
+# HELPER — LOOK-AHEAD PROTECTION
 # ============================================================
 
 def _truncate_to(
@@ -50,10 +80,11 @@ def _truncate_to(
     cutoff_time,
 ) -> pd.DataFrame | None:
     """
-    Look-ahead bias prevention.
-
     Sirf woh candles return karta hai jo cutoff_time tak
     available hain.
+
+    IMPORTANT:
+    Is function ka purpose look-ahead bias prevent karna hai.
     """
 
     if df is None:
@@ -62,28 +93,64 @@ def _truncate_to(
     if df.empty:
         return df.copy()
 
-    return df[
-        df["timestamp"] <= cutoff_time
-    ].reset_index(drop=True)
+    cutoff = _normalize_timestamp(cutoff_time)
 
+    if cutoff is None:
+        return df.copy()
+
+    temp = df.copy()
+
+    try:
+        timestamps = pd.to_datetime(
+            temp["timestamp"],
+            utc=True,
+        )
+
+        temp = temp.loc[
+            timestamps <= cutoff
+        ].copy()
+
+    except Exception:
+        temp = temp[
+            temp["timestamp"] <= cutoff
+        ].copy()
+
+    return temp.reset_index(drop=True)
+
+
+# ============================================================
+# MARKET CLASSIFICATION
+# ============================================================
 
 def _classify_month_market(
     df_daily: pd.DataFrame,
 ) -> str:
     """
     Month ke overall market condition ko classify karta hai.
+
+    BTC / daily data ke basis par:
+
+        > +10%  = STRONG BULL
+        > +3%   = BULL
+        < -10%  = STRONG BEAR
+        < -3%   = BEAR
+        else    = SIDEWAYS / CONSOLIDATION
     """
 
     if df_daily is None or len(df_daily) < 5:
         return "UNKNOWN"
 
-    start_price = float(
-        df_daily["close"].iloc[0]
-    )
+    try:
+        start_price = float(
+            df_daily["close"].iloc[0]
+        )
 
-    end_price = float(
-        df_daily["close"].iloc[-1]
-    )
+        end_price = float(
+            df_daily["close"].iloc[-1]
+        )
+
+    except Exception:
+        return "UNKNOWN"
 
     if start_price <= 0:
         return "UNKNOWN"
@@ -131,9 +198,10 @@ def _resolve_zone(
         TIMEOUT
         PENDING
 
-    Conservative assumption:
+    Conservative rule:
 
-        Same candle TP + SL = LOSS
+        Same candle TP + SL
+        => LOSS
     """
 
     if (
@@ -143,25 +211,32 @@ def _resolve_zone(
         zone["status"] = "PENDING"
         zone["resolved_at"] = None
         zone["touched_at"] = None
+
+        return zone
+
+    try:
+        entry_price = float(
+            zone["entry_price"]
+        )
+
+        stop_price = float(
+            zone["stop_price"]
+        )
+
+        target_price = float(
+            zone["target_price"]
+        )
+
+    except Exception:
+        zone["status"] = "PENDING"
         zone["resolution_reason"] = (
-            "NO_FUTURE_DATA"
+            "INVALID_EXECUTION_VALUES"
         )
 
         return zone
 
-    entry_price = float(
-        zone["entry_price"]
-    )
-
-    stop_price = float(
-        zone["stop_price"]
-    )
-
-    target_price = float(
-        zone["target_price"]
-    )
-
     touched = False
+    touched_at = None
 
     # --------------------------------------------------------
     # Zone tolerance
@@ -174,6 +249,10 @@ def _resolve_zone(
         )
     )
 
+    # Long setup:
+    # Price ko zone price ke around touch karna hoga.
+    #
+    # Upper tolerance ko allow kar rahe hain.
     touch_threshold = (
         entry_price
         * (
@@ -190,20 +269,24 @@ def _resolve_zone(
         df_after_entry.iterrows()
     ):
 
-        candle_low = float(
-            candle["low"]
-        )
+        try:
+            candle_low = float(
+                candle["low"]
+            )
 
-        candle_high = float(
-            candle["high"]
-        )
+            candle_high = float(
+                candle["high"]
+            )
+
+        except Exception:
+            continue
 
         candle_time = str(
             candle["timestamp"]
         )
 
         # ----------------------------------------------------
-        # Zone touch
+        # 1. Zone touch
         # ----------------------------------------------------
 
         if not touched:
@@ -211,25 +294,24 @@ def _resolve_zone(
             if candle_low <= touch_threshold:
 
                 touched = True
+                touched_at = candle_time
 
                 zone["touched_at"] = (
-                    candle_time
+                    touched_at
                 )
 
         # ----------------------------------------------------
-        # TP / SL after zone touch
+        # 2. TP / SL after zone touch
         # ----------------------------------------------------
 
         if touched:
 
             hit_target = (
-                candle_high
-                >= target_price
+                candle_high >= target_price
             )
 
             hit_stop = (
-                candle_low
-                <= stop_price
+                candle_low <= stop_price
             )
 
             # ------------------------------------------------
@@ -267,7 +349,7 @@ def _resolve_zone(
                     return zone
 
             # ------------------------------------------------
-            # TP only
+            # TP
             # ------------------------------------------------
 
             if hit_target:
@@ -285,7 +367,7 @@ def _resolve_zone(
                 return zone
 
             # ------------------------------------------------
-            # SL only
+            # SL
             # ------------------------------------------------
 
             if hit_stop:
@@ -303,7 +385,7 @@ def _resolve_zone(
                 return zone
 
         # ----------------------------------------------------
-        # Maximum trade lifetime
+        # 3. Trade lifetime
         # ----------------------------------------------------
 
         if (
@@ -385,12 +467,15 @@ def backtest_single_coin_month(
               ↓
         qualified?
               ↓
-        future candles se resolution
-
-    analyze() ko sirf current candle tak ka data diya jata hai.
+        future candles
+              ↓
+        WIN / LOSS / EXPIRED / TIMEOUT / PENDING
     """
 
     if df_main is None:
+        return []
+
+    if df_main.empty:
         return []
 
     if len(df_main) < 100:
@@ -402,38 +487,67 @@ def backtest_single_coin_month(
 
     if max_lifetime_bars is None:
 
-        max_lifetime_bars = (
-            int(
-                tf_cfg.get(
-                    "max_structure_age_bars",
-                    18,
-                )
+        structure_age = int(
+            tf_cfg.get(
+                "max_structure_age_bars",
+                18,
             )
-            * 3
         )
 
-    max_lifetime_bars = max(
-        1,
-        int(max_lifetime_bars),
+        max_lifetime_bars = max(
+            1,
+            structure_age * 3,
+        )
+
+    # --------------------------------------------------------
+    # Normalize main timestamps
+    # --------------------------------------------------------
+
+    main_df = df_main.copy()
+
+    try:
+        main_df["timestamp"] = pd.to_datetime(
+            main_df["timestamp"],
+            utc=True,
+        )
+    except Exception:
+        pass
+
+    main_df = (
+        main_df
+        .sort_values("timestamp")
+        .reset_index(drop=True)
     )
 
-    month_start_ts = pd.Timestamp(
+    month_start_ts = _normalize_timestamp(
         month_start
     )
 
-    month_end_ts = pd.Timestamp(
+    month_end_ts = _normalize_timestamp(
         month_end
     )
+
+    if (
+        month_start_ts is None
+        or month_end_ts is None
+    ):
+        return []
 
     # --------------------------------------------------------
     # Current month candles
     # --------------------------------------------------------
 
-    month_candles = df_main[
-        (df_main["timestamp"] >= month_start_ts)
+    month_candles = main_df[
+        (
+            main_df["timestamp"]
+            >= month_start_ts
+        )
         &
-        (df_main["timestamp"] < month_end_ts)
-    ]
+        (
+            main_df["timestamp"]
+            < month_end_ts
+        )
+    ].copy()
 
     if month_candles.empty:
         return []
@@ -441,41 +555,44 @@ def backtest_single_coin_month(
     zones_found = []
 
     # --------------------------------------------------------
-    # Duplicate zone protection
+    # Duplicate protection
+    #
+    # Same setup ko har candle par repeatedly record
+    # karne se prevent karta hai.
     # --------------------------------------------------------
 
-    last_recorded_zone_price = None
+    recorded_zone_keys = set()
+
+    last_swing_key = None
 
     # --------------------------------------------------------
     # Candle-by-candle replay
     # --------------------------------------------------------
 
-    for _, candle in month_candles.iterrows():
+    for abs_idx in month_candles.index:
 
-        candle_time = candle["timestamp"]
+        candle = main_df.iloc[
+            abs_idx
+        ]
 
-        matching_indices = df_main.index[
-            df_main["timestamp"] == candle_time
-        ].tolist()
-
-        if not matching_indices:
-            continue
-
-        abs_idx = matching_indices[0]
+        candle_time = candle[
+            "timestamp"
+        ]
 
         # ----------------------------------------------------
         # Historical main timeframe slice
         # ----------------------------------------------------
 
         df_slice = (
-            df_main.iloc[
-                : abs_idx + 1
+            main_df.iloc[
+                :abs_idx + 1
             ]
+            .copy()
             .reset_index(drop=True)
         )
 
         # ----------------------------------------------------
-        # Historical auxiliary slices
+        # Higher timeframe slices
         # ----------------------------------------------------
 
         df_daily_slice = _truncate_to(
@@ -497,14 +614,13 @@ def backtest_single_coin_month(
         # Previous swing state
         # ----------------------------------------------------
 
-        if (
-            last_recorded_zone_price
-            is not None
-        ):
+        prev_state = None
+
+        if last_swing_key is not None:
 
             prev_state = {
                 "last_recorded_zone_price":
-                    last_recorded_zone_price,
+                    last_swing_key,
 
                 "swing_high": None,
 
@@ -515,28 +631,24 @@ def backtest_single_coin_month(
                 "swing_low_time": None,
             }
 
-        else:
-
-            prev_state = None
-
         # ----------------------------------------------------
-        # LIVE SIGNAL ENGINE
+        # Signal Engine
         # ----------------------------------------------------
 
         try:
 
             result = analyze(
-                coin,
-                timeframe,
-                df_slice,
-                (
+                coin=coin,
+                timeframe=timeframe,
+                df=df_slice,
+                df_daily=(
                     df_daily_slice
                     if df_daily_slice is not None
-                    else df_main.head(0)
+                    else main_df.head(0)
                 ),
-                df_inter_slice,
-                prev_state,
-                df_btc_slice,
+                df_intermediate=df_inter_slice,
+                prev_swing_state=prev_state,
+                df_btc=df_btc_slice,
             )
 
         except Exception as e:
@@ -544,7 +656,8 @@ def backtest_single_coin_month(
             logger.warning(
                 "analyze() failed: "
                 f"{coin}[{timeframe}] "
-                f"{candle_time}: {e}"
+                f"{candle_time}: "
+                f"{type(e).__name__}: {e}"
             )
 
             continue
@@ -556,62 +669,65 @@ def backtest_single_coin_month(
         if not result.qualifies:
             continue
 
-        zone_price = (
-            result.best_zone_price
-        )
-
-        if zone_price is None:
-            continue
-
-        zone_price = float(
-            zone_price
-        )
-
-        # ----------------------------------------------------
-        # Duplicate zone protection
-        # ----------------------------------------------------
-
-        if (
-            last_recorded_zone_price
-            is not None
-            and zone_price
-            == last_recorded_zone_price
-        ):
-            continue
-
         # ----------------------------------------------------
         # Required execution values
         # ----------------------------------------------------
 
         if (
-            result.stop_price is None
+            result.best_zone_price is None
+            or result.stop_price is None
             or result.target_price is None
             or result.actual_rr is None
         ):
 
             logger.warning(
-                "Qualified signal missing "
-                "execution values: "
+                "Qualified signal missing execution values: "
                 f"{coin}[{timeframe}] "
                 f"{candle_time}"
             )
 
             continue
 
-        # Update duplicate tracker only after
-        # complete valid execution data.
-        last_recorded_zone_price = (
-            zone_price
+        zone_price = float(
+            result.best_zone_price
         )
 
         # ----------------------------------------------------
+        # Duplicate key
+        #
+        # Structure + zone + timeframe combination ko
+        # duplicate hone se prevent karta hai.
+        # ----------------------------------------------------
+
+        structure_key = (
+            str(result.swing_high_time),
+            str(result.swing_low_time),
+            round(zone_price, 10),
+        )
+
+        if structure_key in recorded_zone_keys:
+            continue
+
+        recorded_zone_keys.add(
+            structure_key
+        )
+
+        last_swing_key = zone_price
+
+        # ----------------------------------------------------
         # Future candles
+        #
+        # IMPORTANT:
+        # Current candle intentionally exclude hai.
+        # Isse current candle ke OHLC ko future resolution
+        # mein accidentally use nahi karte.
         # ----------------------------------------------------
 
         df_after = (
-            df_main.iloc[
+            main_df.iloc[
                 abs_idx + 1:
             ]
+            .copy()
             .reset_index(drop=True)
         )
 
@@ -620,6 +736,7 @@ def backtest_single_coin_month(
         # ----------------------------------------------------
 
         zone = {
+
             "coin":
                 coin,
 
@@ -630,41 +747,32 @@ def backtest_single_coin_month(
                 str(candle_time),
 
             "entry_price":
-                float(
-                    result.best_zone_price
-                ),
+                float(result.best_zone_price),
 
             "stop_price":
-                float(
-                    result.stop_price
-                ),
+                float(result.stop_price),
 
             "target_price":
-                float(
-                    result.target_price
-                ),
+                float(result.target_price),
 
             "tp2_price":
                 (
                     float(result.tp2_price)
-                    if result.tp2_price
-                    is not None
+                    if result.tp2_price is not None
                     else None
                 ),
 
             "swing_low":
                 (
                     float(result.swing_low)
-                    if result.swing_low
-                    is not None
+                    if result.swing_low is not None
                     else None
                 ),
 
             "swing_high":
                 (
                     float(result.swing_high)
-                    if result.swing_high
-                    is not None
+                    if result.swing_high is not None
                     else None
                 ),
 
@@ -703,20 +811,14 @@ def backtest_single_coin_month(
         }
 
         # ----------------------------------------------------
-        # Resolve zone against future candles
+        # Resolve trade
         # ----------------------------------------------------
 
         zone = _resolve_zone(
             zone=zone,
-
             df_after_entry=df_after,
-
             tf_cfg=tf_cfg,
-
-            max_lifetime_bars=(
-                max_lifetime_bars
-            ),
-
+            max_lifetime_bars=max_lifetime_bars,
             same_candle_tp_sl_is_loss=(
                 same_candle_tp_sl_is_loss
             ),
@@ -737,13 +839,17 @@ def compute_month_metrics(
     slip_pct: float = 0.04,
 ) -> dict:
     """
-    Month ke zones se complete performance metrics calculate karta hai.
+    Month ke zones se performance metrics calculate karta hai.
 
-    Round-trip cost:
+    Fee:
+        0.075% per side
 
-        2 × fee
-        +
-        2 × slippage
+    Slippage:
+        0.04% per side
+
+    Round-trip:
+        2 × fee + 2 × slippage
+        = 0.23%
     """
 
     wins = [
@@ -756,138 +862,10 @@ def compute_month_metrics(
         if z.get("status") == "LOSS"
     ]
 
-    resolved = (
-        wins
-        + losses
-    )
-
-    # --------------------------------------------------------
-    # Cost model
-    # --------------------------------------------------------
-
-    roundtrip_cost_pct = (
-        (float(fee_pct) * 2)
-        +
-        (float(slip_pct) * 2)
-    )
-
-    cost_multiplier = (
-        roundtrip_cost_pct / 100.0
-    )
-
-    # --------------------------------------------------------
-    # WIN R values
-    # --------------------------------------------------------
-
-    win_r_values = []
-
-    for z in wins:
-
-        rr = z.get(
-            "actual_rr"
-        )
-
-        if rr is None:
-            continue
-
-        rr = float(rr)
-
-        net_r = (
-            rr
-            - (
-                cost_multiplier
-                * rr
-            )
-        )
-
-        win_r_values.append(
-            net_r
-        )
-
-    # --------------------------------------------------------
-    # LOSS R values
-    # --------------------------------------------------------
-
-    loss_r_values = [
-        -(
-            1.0
-            + cost_multiplier
-        )
-        for _ in losses
+    expired = [
+        z for z in zones
+        if z.get("status") == "EXPIRED"
     ]
 
-    # --------------------------------------------------------
-    # Total
-    # --------------------------------------------------------
-
-    total_r_values = (
-        win_r_values
-        + loss_r_values
-    )
-
-    net_pnl_r = sum(
-        total_r_values
-    )
-
-    gross_win_r = sum(
-        win_r_values
-    )
-
-    gross_loss_r = abs(
-        sum(loss_r_values)
-    )
-
-    # --------------------------------------------------------
-    # Win rate
-    # --------------------------------------------------------
-
-    win_rate = (
-        len(wins)
-        / len(resolved)
-        * 100.0
-        if resolved
-        else 0.0
-    )
-
-    # --------------------------------------------------------
-    # Profit factor
-    # --------------------------------------------------------
-
-    if gross_loss_r > 0:
-
-        profit_factor = (
-            gross_win_r
-            / gross_loss_r
-        )
-
-    else:
-
-        profit_factor = (
-            float("inf")
-            if gross_win_r > 0
-            else 1.0
-        )
-
-    # --------------------------------------------------------
-    # Drawdown + streaks
-    # --------------------------------------------------------
-
-    running_r = 0.0
-    peak_r = 0.0
-    max_dd = 0.0
-
-    max_consec_wins = 0
-    max_consec_losses = 0
-
-    streak_w = 0
-    streak_l = 0
-
-    for z in zones:
-
-        status = z.get(
-            "status"
-        )
-
-        # ----------------------------------------------------
-        # WIN
-        # ----------------------------------------------------
+    timed_out = [
+        z for z in zones
