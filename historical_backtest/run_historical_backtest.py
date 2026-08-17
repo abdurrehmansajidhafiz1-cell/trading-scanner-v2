@@ -52,6 +52,13 @@ sys.path.insert(0, SELF_DIR)
 
 import hist_config as hc
 
+# Live strategy config — TF_SETTINGS (zone_tolerance_pct,
+# max_structure_age_bars, etc.) yahan se aati hain, taake
+# historical backtest live strategy settings se match kare.
+# NOTE: Agar aapki live config file "config.py" ke ilawa kisi
+# aur naam se hai, ye import line usi naam se update karni hogi.
+import config as live_cfg
+
 from hist_data_fetcher import (
     fetch_full_history,
     get_working_exchange_hist,
@@ -497,7 +504,10 @@ def process_single_month(
                         timeframe=timeframe,
                         month_start=month_start,
                         month_end=month_end,
-                        tf_cfg=hc.TF_SETTINGS[
+                        # NOTE: TF_SETTINGS live config.py se
+                        # aati hai (hist_config.py mein nahi hai —
+                        # dono files ka jaan-bhoojh kar alag design).
+                        tf_cfg=live_cfg.TF_SETTINGS[
                             timeframe
                         ],
                     )
@@ -869,4 +879,58 @@ def main():
         for r in all_monthly_results
     )
 
-    to
+    total_pnl_r = sum(
+        r["metrics"]["net_pnl_r"]
+        for r in all_monthly_results
+    )
+
+    resolved = total_wins + total_losses
+
+    overall_win_rate = (
+        (total_wins / resolved * 100.0)
+        if resolved > 0
+        else 0.0
+    )
+
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info(
+        "  HISTORICAL BACKTEST COMPLETE"
+    )
+    logger.info("=" * 60)
+
+    logger.info(
+        "  Total Trades:  %d",
+        total_zones,
+    )
+
+    logger.info(
+        "  Wins / Losses: %d / %d",
+        total_wins,
+        total_losses,
+    )
+
+    logger.info(
+        "  Win Rate:      %.1f%%",
+        overall_win_rate,
+    )
+
+    logger.info(
+        "  Net P&L (R):   %+.2f R",
+        total_pnl_r,
+    )
+
+    logger.info("=" * 60)
+
+    return 0
+
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+
+    exit_code = main()
+
+    sys.exit(exit_code)
