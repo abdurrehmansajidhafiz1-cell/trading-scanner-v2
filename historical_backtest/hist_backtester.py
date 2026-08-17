@@ -825,65 +825,103 @@ def compute_month_metrics(
             max_dd,
             drawdown,
         )
-
-        max_consec_wins = max(
+        "max_consec_wins":
             max_consec_wins,
-            streak_w,
-        )
 
-        max_consec_losses = max(
+        "max_consec_losses":
             max_consec_losses,
-            streak_l,
-        )
+    }
 
-    # --------------------------------------------------------
-    # Expectancy
-    # --------------------------------------------------------
 
-    expectancy_r = (
-        net_pnl_r / len(resolved)
-        if resolved
-        else 0.0
+# ============================================================
+# DAY-BY-DAY BREAKDOWN
+# ============================================================
+
+def compute_day_breakdown(
+    zones: list[dict],
+) -> dict:
+    """
+    Month ke qualified zones ko day-by-day aggregate karta hai.
+
+    Har day ke liye:
+        - zones
+        - wins
+        - losses
+        - net P&L in R
+    """
+
+    day_data = defaultdict(
+        lambda: {
+            "zones": 0,
+            "wins": 0,
+            "losses": 0,
+            "pnl_r": 0.0,
+        }
     )
 
-    return {
-        "total_trades": len(zones),
+    # Same cost model as compute_month_metrics()
+    fee_pct = 0.075
+    slip_pct = 0.04
 
-        "wins": len(wins),
+    roundtrip_cost_pct = (
+        (fee_pct * 2)
+        +
+        (slip_pct * 2)
+    )
 
-        "losses": len(losses),
+    cost_multiplier = (
+        roundtrip_cost_pct / 100
+    )
 
-        "expired": sum(
-            1
-            for z in zones
-            if z["status"] == "EXPIRED"
-        ),
+    for z in zones:
 
-        "timed_out": sum(
-            1
-            for z in zones
-            if z["status"] == "TIMEOUT"
-        ),
+        try:
+            day_str = str(
+                z["created_at"]
+            )[:10]
 
-        "pending": sum(
-            1
-            for z in zones
-            if z["status"] == "PENDING"
-        ),
+        except Exception:
+            continue
 
-        "win_rate_pct": win_rate,
+        day_data[day_str]["zones"] += 1
 
-        "net_pnl_r": net_pnl_r,
+        # ----------------------------------------------------
+        # WIN
+        # ----------------------------------------------------
 
-        "profit_factor": profit_factor,
+        if z["status"] == "WIN":
 
-        "expectancy_r": expectancy_r,
+            day_data[day_str]["wins"] += 1
 
-        "gross_win_r": gross_win_r,
+            rr = z.get("actual_rr")
 
-        "gross_loss_r": gross_loss_r,
+            if rr is not None:
 
-        "max_drawdown_r": max_dd,
+                net_r = (
+                    rr
+                    - (cost_multiplier * rr)
+                )
 
-        "max_consec_wins":
-            max_con
+                day_data[day_str]["pnl_r"] += net_r
+
+        # ----------------------------------------------------
+        # LOSS
+        # ----------------------------------------------------
+
+        elif z["status"] == "LOSS":
+
+            day_data[day_str]["losses"] += 1
+
+            day_data[day_str]["pnl_r"] += -(
+                1.0
+                + cost_multiplier
+            )
+
+    return dict(
+        sorted(
+            day_data.items()
+        )
+    )
+
+        
+           
