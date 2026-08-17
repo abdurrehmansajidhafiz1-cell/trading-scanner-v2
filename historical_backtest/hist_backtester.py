@@ -914,35 +914,41 @@ def _trade_cost_r(
 
 
 # ============================================================
-# ZONE SUMMARY (shared by month + day breakdown)
+# MONTH METRICS
 # ============================================================
+#
+# IMPORTANT: Ye keys hist_reporter.py ke render_month_section(),
+# render_year_summary(), aur render_overall_summary() ke saath
+# EXACTLY match honi chahiye:
+#
+#   total_trades, wins, losses, expired, timed_out, pending,
+#   win_rate_pct, net_pnl_r, profit_factor,
+#   max_drawdown_r, max_consec_wins, max_consec_losses
+#
 
-def _summarize_zones(
+def compute_month_metrics(
     zones: list[dict],
     fee_pct: float = 0.0,
     slippage_pct: float = 0.0,
 ) -> dict:
     """
-    Zones ki list se aggregate metrics banata hai.
+    Zones ki list se aggregate metrics banata hai
+    (win rate, net P&L, profit factor, drawdown, streaks).
 
-    NOTE:
-    Ye reconstruction hai — original compute_month_metrics /
-    compute_day_breakdown ka source code available nahi tha.
-    Fee/slippage handling ya R-multiple formula agar aapki
-    asal strategy se mismatch kare to yahan adjust karna hoga.
+    NOTE: Ye reconstruction hai — original source code
+    available nahi tha. R-multiple formula ya fee handling
+    agar aapki asal strategy se mismatch kare to adjust karna.
     """
 
     total_trades = 0
     wins = 0
     losses = 0
-    timeouts = 0
     expired = 0
+    timed_out = 0
     pending = 0
 
-    gross_pnl_r = 0.0
-    total_cost_r = 0.0
-
-    win_r_values = []
+    # Chronological resolved trades: (created_at, net_r)
+    resolved_trades = []
 
     for zone in zones:
 
@@ -953,20 +959,17 @@ def _summarize_zones(
             total_trades += 1
             wins += 1
 
-            rr = zone.get("actual_rr")
-
             try:
-                rr = float(rr)
+                rr = float(zone.get("actual_rr") or 0.0)
             except Exception:
                 rr = 0.0
 
-            gross_pnl_r += rr
-            win_r_values.append(rr)
+            cost = _trade_cost_r(
+                zone, fee_pct, slippage_pct
+            )
 
-            total_cost_r += _trade_cost_r(
-                zone,
-                fee_pct,
-                slippage_pct,
+            resolved_trades.append(
+                (zone.get("created_at", ""), rr - cost)
             )
 
         elif status == "LOSS":
@@ -974,16 +977,16 @@ def _summarize_zones(
             total_trades += 1
             losses += 1
 
-            gross_pnl_r += -1.0
+            cost = _trade_cost_r(
+                zone, fee_pct, slippage_pct
+            )
 
-            total_cost_r += _trade_cost_r(
-                zone,
-                fee_pct,
-                slippage_pct,
+            resolved_trades.append(
+                (zone.get("created_at", ""), -1.0 - cost)
             )
 
         elif status == "TIMEOUT":
-            timeouts += 1
+            timed_out += 1
 
         elif status == "EXPIRED":
             expired += 1
@@ -991,7 +994,23 @@ def _summarize_zones(
         elif status == "PENDING":
             pending += 1
 
-    net_pnl_r = gross_pnl_r - total_cost_r
+    resolved_trades.sort(key=lambda x: x[0])
+
+    net_pnl_r = sum(r for _, r in resolved_trades)
+
+    gross_profit = sum(
+        r for _, r in resolved_trades if r > 0
+    )
+    gross_loss = sum(
+        r for _, r in resolved_trades if r < 0
+    )
+
+    if gross_loss == 0:
+        profit_factor = (
+            float("inf") if gross_profit > 0 else 0.0
+        )
+    else:
+        profit_factor = gross_profit / abs(gross_loss)
 
     win_rate_pct = (
         (wins / total_trades * 100.0)
@@ -999,59 +1018,80 @@ def _summarize_zones(
         else 0.0
     )
 
-    avg_win_r = (
-        (sum(win_r_values) / len(win_r_values))
-        if win_r_values
-        else 0.0
-    )
+    # ----------------------------------------------------
+    # Drawdown + consecutive streaks (chronological)
+    # ----------------------------------------------------
+
+    equity = 0.0
+    peak = 0.0
+    max_dd = 0.0
+
+    cur_win_streak = 0
+    cur_loss_streak = 0
+    max_consec_wins = 0
+    max_consec_losses = 0
+
+    for _, r in resolved_trades:
+
+        equity += r
+
+        if equity > peak:
+            peak = equity
+
+        dd = peak - equity
+
+        if dd > max_dd:
+            max_dd = dd
+
+        if r > 0:
+            cur_win_streak += 1
+            cur_loss_streak = 0
+        elif r < 0:
+            cur_loss_streak += 1
+            cur_win_streak = 0
+        else:
+            cur_win_streak = 0
+            cur_loss_streak = 0
+
+        max_consec_wins = max(
+            max_consec_wins, cur_win_streak
+        )
+        max_consec_losses = max(
+            max_consec_losses, cur_loss_streak
+        )
 
     return {
         "total_trades": total_trades,
         "wins": wins,
         "losses": losses,
-        "timeouts": timeouts,
         "expired": expired,
+        "timed_out": timed_out,
         "pending": pending,
-        "gross_pnl_r": round(gross_pnl_r, 4),
-        "total_cost_r": round(total_cost_r, 4),
-        "net_pnl_r": round(net_pnl_r, 4),
         "win_rate_pct": round(win_rate_pct, 2),
-        "avg_win_r": round(avg_win_r, 4),
+        "net_pnl_r": round(net_pnl_r, 4),
+        "profit_factor": profit_factor,
+        "max_drawdown_r": round(max_dd, 4),
+        "max_consec_wins": max_consec_wins,
+        "max_consec_losses": max_consec_losses,
     }
-
-
-# ============================================================
-# MONTH METRICS
-# ============================================================
-
-def compute_month_metrics(
-    zones: list[dict],
-    fee_pct: float = 0.0,
-    slippage_pct: float = 0.0,
-) -> dict:
-    """
-    Ek month ke sab zones se aggregate metrics banata hai.
-    """
-
-    return _summarize_zones(
-        zones,
-        fee_pct=fee_pct,
-        slippage_pct=slippage_pct,
-    )
 
 
 # ============================================================
 # DAY-BY-DAY BREAKDOWN
 # ============================================================
+#
+# IMPORTANT: Ye keys hist_reporter.py ke render_day_table()
+# ke saath EXACTLY match honi chahiye: zones, wins, losses, pnl_r
+#
 
 def compute_day_breakdown(
     zones: list[dict],
 ) -> dict:
     """
     Zones ko "created_at" date ke hisaab se group karke
-    har din ke metrics return karta hai.
+    har din ke breakdown return karta hai.
 
-    NOTE: Fees/slippage yahan include nahi kiye gaye
+    NOTE: Fees/slippage yahan include nahi kiye
     (caller sirf zones pass karta hai, fee args nahi deta).
     """
 
@@ -1072,8 +1112,39 @@ def compute_day_breakdown(
 
     for day_key in sorted(daily_zones.keys()):
 
-        breakdown[day_key] = _summarize_zones(
-            daily_zones[day_key]
+        day_zones = daily_zones[day_key]
+
+        wins = sum(
+            1 for z in day_zones
+            if z.get("status") == "WIN"
         )
+
+        losses = sum(
+            1 for z in day_zones
+            if z.get("status") == "LOSS"
+        )
+
+        pnl_r = 0.0
+
+        for z in day_zones:
+
+            if z.get("status") == "WIN":
+
+                try:
+                    pnl_r += float(
+                        z.get("actual_rr") or 0.0
+                    )
+                except Exception:
+                    pass
+
+            elif z.get("status") == "LOSS":
+                pnl_r += -1.0
+
+        breakdown[day_key] = {
+            "zones": len(day_zones),
+            "wins": wins,
+            "losses": losses,
+            "pnl_r": round(pnl_r, 4),
+        }
 
     return breakdown
