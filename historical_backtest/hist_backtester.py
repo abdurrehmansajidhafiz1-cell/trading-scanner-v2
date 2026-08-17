@@ -863,3 +863,217 @@ def backtest_single_coin_month(
         zone = _resolve_zone(
             zone=zone,
             df_after_entry=df_after,
+            tf_cfg=tf_cfg,
+            max_lifetime_bars=max_lifetime_bars,
+            same_candle_tp_sl_is_loss=same_candle_tp_sl_is_loss,
+        )
+
+        zones_found.append(zone)
+
+    return zones_found
+
+
+# ============================================================
+# TRADE COST HELPER (fees + slippage, in R terms)
+# ============================================================
+
+def _trade_cost_r(
+    zone: dict,
+    fee_pct: float,
+    slippage_pct: float,
+) -> float:
+    """
+    Ek trade ka round-trip fee + slippage cost
+    R-multiple mein convert karta hai.
+
+    Risk distance (entry vs stop) ke against
+    cost % ko normalize kiya jata hai.
+    """
+
+    try:
+        entry = float(zone["entry_price"])
+        stop = float(zone["stop_price"])
+    except Exception:
+        return 0.0
+
+    if entry <= 0:
+        return 0.0
+
+    risk_pct = abs(entry - stop) / entry * 100.0
+
+    if risk_pct <= 0:
+        return 0.0
+
+    # Round-trip = entry fee + exit fee
+    total_cost_pct = (
+        (2 * fee_pct)
+        + slippage_pct
+    )
+
+    return total_cost_pct / risk_pct
+
+
+# ============================================================
+# ZONE SUMMARY (shared by month + day breakdown)
+# ============================================================
+
+def _summarize_zones(
+    zones: list[dict],
+    fee_pct: float = 0.0,
+    slippage_pct: float = 0.0,
+) -> dict:
+    """
+    Zones ki list se aggregate metrics banata hai.
+
+    NOTE:
+    Ye reconstruction hai — original compute_month_metrics /
+    compute_day_breakdown ka source code available nahi tha.
+    Fee/slippage handling ya R-multiple formula agar aapki
+    asal strategy se mismatch kare to yahan adjust karna hoga.
+    """
+
+    total_trades = 0
+    wins = 0
+    losses = 0
+    timeouts = 0
+    expired = 0
+    pending = 0
+
+    gross_pnl_r = 0.0
+    total_cost_r = 0.0
+
+    win_r_values = []
+
+    for zone in zones:
+
+        status = zone.get("status")
+
+        if status == "WIN":
+
+            total_trades += 1
+            wins += 1
+
+            rr = zone.get("actual_rr")
+
+            try:
+                rr = float(rr)
+            except Exception:
+                rr = 0.0
+
+            gross_pnl_r += rr
+            win_r_values.append(rr)
+
+            total_cost_r += _trade_cost_r(
+                zone,
+                fee_pct,
+                slippage_pct,
+            )
+
+        elif status == "LOSS":
+
+            total_trades += 1
+            losses += 1
+
+            gross_pnl_r += -1.0
+
+            total_cost_r += _trade_cost_r(
+                zone,
+                fee_pct,
+                slippage_pct,
+            )
+
+        elif status == "TIMEOUT":
+            timeouts += 1
+
+        elif status == "EXPIRED":
+            expired += 1
+
+        elif status == "PENDING":
+            pending += 1
+
+    net_pnl_r = gross_pnl_r - total_cost_r
+
+    win_rate_pct = (
+        (wins / total_trades * 100.0)
+        if total_trades > 0
+        else 0.0
+    )
+
+    avg_win_r = (
+        (sum(win_r_values) / len(win_r_values))
+        if win_r_values
+        else 0.0
+    )
+
+    return {
+        "total_trades": total_trades,
+        "wins": wins,
+        "losses": losses,
+        "timeouts": timeouts,
+        "expired": expired,
+        "pending": pending,
+        "gross_pnl_r": round(gross_pnl_r, 4),
+        "total_cost_r": round(total_cost_r, 4),
+        "net_pnl_r": round(net_pnl_r, 4),
+        "win_rate_pct": round(win_rate_pct, 2),
+        "avg_win_r": round(avg_win_r, 4),
+    }
+
+
+# ============================================================
+# MONTH METRICS
+# ============================================================
+
+def compute_month_metrics(
+    zones: list[dict],
+    fee_pct: float = 0.0,
+    slippage_pct: float = 0.0,
+) -> dict:
+    """
+    Ek month ke sab zones se aggregate metrics banata hai.
+    """
+
+    return _summarize_zones(
+        zones,
+        fee_pct=fee_pct,
+        slippage_pct=slippage_pct,
+    )
+
+
+# ============================================================
+# DAY-BY-DAY BREAKDOWN
+# ============================================================
+
+def compute_day_breakdown(
+    zones: list[dict],
+) -> dict:
+    """
+    Zones ko "created_at" date ke hisaab se group karke
+    har din ke metrics return karta hai.
+
+    NOTE: Fees/slippage yahan include nahi kiye gaye
+    (caller sirf zones pass karta hai, fee args nahi deta).
+    """
+
+    daily_zones = defaultdict(list)
+
+    for zone in zones:
+
+        created_at = zone.get("created_at")
+
+        if not created_at:
+            continue
+
+        day_key = str(created_at)[:10]
+
+        daily_zones[day_key].append(zone)
+
+    breakdown = {}
+
+    for day_key in sorted(daily_zones.keys()):
+
+        breakdown[day_key] = _summarize_zones(
+            daily_zones[day_key]
+        )
+
+    return breakdown
