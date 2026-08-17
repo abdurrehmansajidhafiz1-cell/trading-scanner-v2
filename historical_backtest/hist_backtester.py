@@ -25,9 +25,7 @@ import numpy as np
 # ============================================================
 
 PARENT_DIR = os.path.dirname(
-    os.path.dirname(
-        os.path.abspath(__file__)
-    )
+    os.path.dirname(os.path.abspath(__file__))
 )
 
 SELF_DIR = os.path.dirname(
@@ -49,15 +47,11 @@ logger = logging.getLogger("hist_backtest")
 
 
 # ============================================================
-# HELPER — TIMESTAMP NORMALIZATION
+# TIMESTAMP HELPERS
 # ============================================================
 
 def _normalize_timestamp(ts):
-    """
-    Timestamp ko pandas Timestamp mein normalize karta hai.
-
-    Naive timestamp ko UTC assume karta hai.
-    """
+    """Timestamp ko UTC-aware pandas Timestamp mein convert karta hai."""
 
     if ts is None:
         return None
@@ -67,7 +61,6 @@ def _normalize_timestamp(ts):
 
         if result.tzinfo is None:
             result = result.tz_localize("UTC")
-
         else:
             result = result.tz_convert("UTC")
 
@@ -77,8 +70,33 @@ def _normalize_timestamp(ts):
         return None
 
 
+def _ensure_timestamp_column(df):
+    """DataFrame ki timestamp column ko UTC-aware banata hai."""
+
+    if df is None:
+        return None
+
+    if df.empty:
+        return df.copy()
+
+    result = df.copy()
+
+    if "timestamp" not in result.columns:
+        return result
+
+    try:
+        result["timestamp"] = pd.to_datetime(
+            result["timestamp"],
+            utc=True,
+        )
+    except Exception:
+        pass
+
+    return result
+
+
 # ============================================================
-# HELPER — LOOK-AHEAD PROTECTION
+# LOOK-AHEAD PROTECTION
 # ============================================================
 
 def _truncate_to(
@@ -89,8 +107,7 @@ def _truncate_to(
     Sirf woh candles return karta hai jo cutoff_time tak
     available hain.
 
-    IMPORTANT:
-    Is function ka purpose look-ahead bias prevent karna hai.
+    Look-ahead bias prevention ke liye use hota hai.
     """
 
     if df is None:
@@ -99,40 +116,21 @@ def _truncate_to(
     if df.empty:
         return df.copy()
 
-    cutoff = _normalize_timestamp(
-        cutoff_time
-    )
+    cutoff = _normalize_timestamp(cutoff_time)
 
     if cutoff is None:
         return df.copy()
 
-    temp = df.copy()
+    temp = _ensure_timestamp_column(df)
 
     try:
-        timestamps = pd.to_datetime(
-            temp["timestamp"],
-            utc=True,
-        )
-
-        temp = temp.loc[
-            timestamps <= cutoff
+        temp = temp[
+            temp["timestamp"] <= cutoff
         ].copy()
-
     except Exception:
+        return df.copy()
 
-        try:
-            temp = temp[
-                temp["timestamp"] <= cutoff
-            ].copy()
-
-        except Exception:
-            return temp.reset_index(
-                drop=True
-            )
-
-    return temp.reset_index(
-        drop=True
-    )
+    return temp.reset_index(drop=True)
 
 
 # ============================================================
@@ -143,20 +141,22 @@ def _classify_month_market(
     df_daily: pd.DataFrame,
 ) -> str:
     """
-    Month ke overall market condition ko classify karta hai.
+    Daily price movement ke basis par month classify karta hai.
 
-    > +10%  = STRONG BULL
-    > +3%   = BULL
-    < -10%  = STRONG BEAR
-    < -3%   = BEAR
-    else    = SIDEWAYS / CONSOLIDATION
+        > +10%  = STRONG BULL
+        > +3%   = BULL
+        < -10%  = STRONG BEAR
+        < -3%   = BEAR
+        else    = SIDEWAYS / CONSOLIDATION
     """
 
-    if (
-        df_daily is None
-        or df_daily.empty
-        or len(df_daily) < 5
-    ):
+    if df_daily is None or df_daily.empty:
+        return "UNKNOWN"
+
+    if "close" not in df_daily.columns:
+        return "UNKNOWN"
+
+    if len(df_daily) < 2:
         return "UNKNOWN"
 
     try:
@@ -207,7 +207,7 @@ def _resolve_zone(
     same_candle_tp_sl_is_loss: bool = True,
 ) -> dict:
     """
-    Qualified zone ko future price action ke against resolve karta hai.
+    Qualified zone ko future candles ke against resolve karta hai.
 
     Possible statuses:
 
@@ -219,7 +219,8 @@ def _resolve_zone(
 
     Conservative rule:
 
-        Same candle TP + SL = LOSS
+        Same candle mein TP aur SL dono hit hon
+        to LOSS count hoga.
     """
 
     if (
@@ -228,12 +229,12 @@ def _resolve_zone(
     ):
         zone["status"] = "PENDING"
         zone["resolved_at"] = None
-        zone["touched_at"] = None
-
+        zone["resolution_reason"] = (
+            "NO_FUTURE_DATA"
+        )
         return zone
 
     try:
-
         entry_price = float(
             zone["entry_price"]
         )
@@ -246,51 +247,41 @@ def _resolve_zone(
             zone["target_price"]
         )
 
-    except (
-        TypeError,
-        ValueError,
-        KeyError,
-    ):
-
+    except Exception:
         zone["status"] = "PENDING"
-
         zone["resolved_at"] = None
-
         zone["resolution_reason"] = (
             "INVALID_EXECUTION_VALUES"
         )
-
         return zone
 
-    # Safety
-    max_lifetime_bars = max(
-        1,
-        int(max_lifetime_bars),
-    )
+    try:
+        max_lifetime_bars = max(
+            1,
+            int(max_lifetime_bars),
+        )
+    except Exception:
+        max_lifetime_bars = 1
 
-    touched = False
+    future_df = _ensure_timestamp_column(
+        df_after_entry
+    )
 
     # --------------------------------------------------------
     # Zone tolerance
     # --------------------------------------------------------
 
     try:
-
         tolerance_pct = float(
             tf_cfg.get(
                 "zone_tolerance_pct",
                 0.0,
             )
         )
-
-    except (
-        TypeError,
-        ValueError,
-    ):
-
+    except Exception:
         tolerance_pct = 0.0
 
-    touch_threshold = (
+    touch_upper = (
         entry_price
         * (
             1.0
@@ -298,16 +289,25 @@ def _resolve_zone(
         )
     )
 
+    touch_lower = (
+        entry_price
+        * (
+            1.0
+            - tolerance_pct / 100.0
+        )
+    )
+
+    touched = False
+
     # --------------------------------------------------------
     # Future candle replay
     # --------------------------------------------------------
 
     for idx, (_, candle) in enumerate(
-        df_after_entry.iterrows()
+        future_df.iterrows()
     ):
 
         try:
-
             candle_low = float(
                 candle["low"]
             )
@@ -316,12 +316,7 @@ def _resolve_zone(
                 candle["high"]
             )
 
-        except (
-            TypeError,
-            ValueError,
-            KeyError,
-        ):
-
+        except Exception:
             continue
 
         candle_time = str(
@@ -329,12 +324,18 @@ def _resolve_zone(
         )
 
         # ----------------------------------------------------
-        # 1. Zone touch
+        # Zone touch
         # ----------------------------------------------------
 
         if not touched:
 
-            if candle_low <= touch_threshold:
+            zone_touched = (
+                candle_low <= touch_upper
+                and
+                candle_high >= touch_lower
+            )
+
+            if zone_touched:
 
                 touched = True
 
@@ -343,51 +344,38 @@ def _resolve_zone(
                 )
 
         # ----------------------------------------------------
-        # 2. TP / SL after touch
+        # TP / SL after entry
         # ----------------------------------------------------
 
         if touched:
 
             hit_target = (
-                candle_high
-                >= target_price
+                candle_high >= target_price
             )
 
             hit_stop = (
-                candle_low
-                <= stop_price
+                candle_low <= stop_price
             )
 
             # ------------------------------------------------
             # Same candle TP + SL
             # ------------------------------------------------
 
-            if (
-                hit_target
-                and hit_stop
-            ):
+            if hit_target and hit_stop:
 
                 if same_candle_tp_sl_is_loss:
 
-                    zone["status"] = (
-                        "LOSS"
-                    )
+                    zone["status"] = "LOSS"
 
-                    zone[
-                        "resolution_reason"
-                    ] = (
+                    zone["resolution_reason"] = (
                         "SAME_CANDLE_TP_SL"
                     )
 
                 else:
 
-                    zone["status"] = (
-                        "WIN"
-                    )
+                    zone["status"] = "WIN"
 
-                    zone[
-                        "resolution_reason"
-                    ] = (
+                    zone["resolution_reason"] = (
                         "SAME_CANDLE_TP_SL_TARGET_FIRST"
                     )
 
@@ -398,16 +386,16 @@ def _resolve_zone(
                 return zone
 
             # ------------------------------------------------
-            # TP hit
+            # Target hit
             # ------------------------------------------------
 
             if hit_target:
 
                 zone["status"] = "WIN"
 
-                zone[
-                    "resolution_reason"
-                ] = "TARGET_HIT"
+                zone["resolution_reason"] = (
+                    "TARGET_HIT"
+                )
 
                 zone["resolved_at"] = (
                     candle_time
@@ -416,16 +404,16 @@ def _resolve_zone(
                 return zone
 
             # ------------------------------------------------
-            # SL hit
+            # Stop hit
             # ------------------------------------------------
 
             if hit_stop:
 
                 zone["status"] = "LOSS"
 
-                zone[
-                    "resolution_reason"
-                ] = "STOP_HIT"
+                zone["resolution_reason"] = (
+                    "STOP_HIT"
+                )
 
                 zone["resolved_at"] = (
                     candle_time
@@ -434,36 +422,25 @@ def _resolve_zone(
                 return zone
 
         # ----------------------------------------------------
-        # 3. Trade lifetime
+        # Lifetime
         # ----------------------------------------------------
 
-        if (
-            idx + 1
-            >= max_lifetime_bars
-        ):
+        if idx + 1 >= max_lifetime_bars:
 
-            if not touched:
+            if touched:
 
-                zone["status"] = (
-                    "EXPIRED"
-                )
+                zone["status"] = "TIMEOUT"
 
-                zone[
-                    "resolution_reason"
-                ] = (
-                    "ZONE_NOT_TOUCHED"
+                zone["resolution_reason"] = (
+                    "TRADE_LIFETIME_EXCEEDED"
                 )
 
             else:
 
-                zone["status"] = (
-                    "TIMEOUT"
-                )
+                zone["status"] = "EXPIRED"
 
-                zone[
-                    "resolution_reason"
-                ] = (
-                    "TRADE_LIFETIME_EXCEEDED"
+                zone["resolution_reason"] = (
+                    "ZONE_NOT_TOUCHED"
                 )
 
             zone["resolved_at"] = (
@@ -477,22 +454,17 @@ def _resolve_zone(
     # --------------------------------------------------------
 
     zone["status"] = "PENDING"
-
     zone["resolved_at"] = None
 
     if touched:
 
-        zone[
-            "resolution_reason"
-        ] = (
+        zone["resolution_reason"] = (
             "FUTURE_DATA_ENDED_AFTER_TOUCH"
         )
 
     else:
 
-        zone[
-            "resolution_reason"
-        ] = (
+        zone["resolution_reason"] = (
             "FUTURE_DATA_ENDED_BEFORE_TOUCH"
         )
 
@@ -517,19 +489,19 @@ def backtest_single_coin_month(
     same_candle_tp_sl_is_loss: bool = True,
 ) -> list[dict]:
     """
-    Ek coin + ek timeframe + ek month ka candle-by-candle
-    historical replay.
+    Ek coin + ek timeframe + ek month ka
+    candle-by-candle historical replay.
 
     Har candle par:
 
         historical slice
-              ↓
+             ↓
         signal_engine.analyze()
-              ↓
+             ↓
         qualified?
-              ↓
+             ↓
         future candles
-              ↓
+             ↓
         WIN / LOSS / EXPIRED / TIMEOUT / PENDING
     """
 
@@ -543,54 +515,19 @@ def backtest_single_coin_month(
         return []
 
     # --------------------------------------------------------
-    # Default trade lifetime
-    # --------------------------------------------------------
-
-    if max_lifetime_bars is None:
-
-        try:
-
-            structure_age = int(
-                tf_cfg.get(
-                    "max_structure_age_bars",
-                    18,
-                )
-            )
-
-        except (
-            TypeError,
-            ValueError,
-        ):
-
-            structure_age = 18
-
-        max_lifetime_bars = max(
-            1,
-            structure_age * 3,
-        )
-
-    # --------------------------------------------------------
     # Normalize main dataframe
     # --------------------------------------------------------
 
-    main_df = df_main.copy()
+    main_df = _ensure_timestamp_column(
+        df_main
+    )
 
-    try:
-
-        main_df["timestamp"] = (
-            pd.to_datetime(
-                main_df["timestamp"],
-                utc=True,
-            )
+    if "timestamp" not in main_df.columns:
+        logger.error(
+            "%s[%s]: timestamp column missing.",
+            coin,
+            timeframe,
         )
-
-    except Exception as e:
-
-        logger.warning(
-            "Could not normalize timestamps "
-            f"for {coin}[{timeframe}]: {e}"
-        )
-
         return []
 
     main_df = (
@@ -599,16 +536,37 @@ def backtest_single_coin_month(
         .reset_index(drop=True)
     )
 
-    month_start_ts = (
-        _normalize_timestamp(
-            month_start
+    # --------------------------------------------------------
+    # Default trade lifetime
+    # --------------------------------------------------------
+
+    if max_lifetime_bars is None:
+
+        try:
+            structure_age = int(
+                tf_cfg.get(
+                    "max_structure_age_bars",
+                    18,
+                )
+            )
+        except Exception:
+            structure_age = 18
+
+        max_lifetime_bars = max(
+            1,
+            structure_age * 3,
         )
+
+    # --------------------------------------------------------
+    # Month boundaries
+    # --------------------------------------------------------
+
+    month_start_ts = _normalize_timestamp(
+        month_start
     )
 
-    month_end_ts = (
-        _normalize_timestamp(
-            month_end
-        )
+    month_end_ts = _normalize_timestamp(
+        month_end
     )
 
     if (
@@ -621,17 +579,15 @@ def backtest_single_coin_month(
     # Current month candles
     # --------------------------------------------------------
 
-    month_candles = main_df[
-        (
-            main_df["timestamp"]
-            >= month_start_ts
-        )
+    month_mask = (
+        (main_df["timestamp"] >= month_start_ts)
         &
-        (
-            main_df["timestamp"]
-            < month_end_ts
-        )
-    ].copy()
+        (main_df["timestamp"] < month_end_ts)
+    )
+
+    month_candles = main_df[
+        month_mask
+    ]
 
     if month_candles.empty:
         return []
@@ -639,12 +595,10 @@ def backtest_single_coin_month(
     zones_found = []
 
     # --------------------------------------------------------
-    # Duplicate setup protection
+    # Duplicate protection
     # --------------------------------------------------------
 
     recorded_zone_keys = set()
-
-    last_zone_price = None
 
     # --------------------------------------------------------
     # Candle-by-candle replay
@@ -656,9 +610,9 @@ def backtest_single_coin_month(
             abs_idx
         ]
 
-        candle_time = (
-            candle["timestamp"]
-        )
+        candle_time = candle[
+            "timestamp"
+        ]
 
         # ----------------------------------------------------
         # Historical main timeframe slice
@@ -676,54 +630,35 @@ def backtest_single_coin_month(
         # Higher timeframe slices
         # ----------------------------------------------------
 
-        df_daily_slice = (
-            _truncate_to(
-                df_daily,
-                candle_time,
-            )
+        df_daily_slice = _truncate_to(
+            df_daily,
+            candle_time,
         )
 
-        df_inter_slice = (
-            _truncate_to(
-                df_intermediate,
-                candle_time,
-            )
+        df_inter_slice = _truncate_to(
+            df_intermediate,
+            candle_time,
         )
 
-        df_btc_slice = (
-            _truncate_to(
-                df_btc_1h,
-                candle_time,
-            )
+        df_btc_slice = _truncate_to(
+            df_btc_1h,
+            candle_time,
         )
 
         # ----------------------------------------------------
-        # Previous state
+        # Previous swing state
         # ----------------------------------------------------
 
         prev_state = None
 
-        if last_zone_price is not None:
-
-            prev_state = {
-                "last_recorded_zone_price":
-                    last_zone_price,
-
-                "swing_high":
-                    None,
-
-                "swing_low":
-                    None,
-
-                "swing_high_time":
-                    None,
-
-                "swing_low_time":
-                    None,
-            }
+        # Signal engine accepts previous swing state,
+        # but historical replay does not inject future values.
+        #
+        # We intentionally keep this None unless a valid
+        # state is available from current historical context.
 
         # ----------------------------------------------------
-        # LIVE SIGNAL ENGINE
+        # Signal Engine
         # ----------------------------------------------------
 
         try:
@@ -737,24 +672,21 @@ def backtest_single_coin_month(
                     if df_daily_slice is not None
                     else main_df.head(0)
                 ),
-                df_intermediate=(
-                    df_inter_slice
-                ),
-                prev_swing_state=(
-                    prev_state
-                ),
-                df_btc=(
-                    df_btc_slice
-                ),
+                df_intermediate=df_inter_slice,
+                prev_swing_state=prev_state,
+                df_btc=df_btc_slice,
             )
 
         except Exception as e:
 
             logger.warning(
                 "analyze() failed: "
-                f"{coin}[{timeframe}] "
-                f"{candle_time}: "
-                f"{type(e).__name__}: {e}"
+                "%s[%s] %s: %s: %s",
+                coin,
+                timeframe,
+                candle_time,
+                type(e).__name__,
+                e,
             )
 
             continue
@@ -778,13 +710,18 @@ def backtest_single_coin_month(
         ):
 
             logger.warning(
-                "Qualified signal missing "
-                "execution values: "
-                f"{coin}[{timeframe}] "
-                f"{candle_time}"
+                "Qualified signal missing execution values: "
+                "%s[%s] %s",
+                coin,
+                timeframe,
+                candle_time,
             )
 
             continue
+
+        # ----------------------------------------------------
+        # Numeric validation
+        # ----------------------------------------------------
 
         try:
 
@@ -792,48 +729,52 @@ def backtest_single_coin_month(
                 result.best_zone_price
             )
 
-        except (
-            TypeError,
-            ValueError,
-        ):
+            stop_price = float(
+                result.stop_price
+            )
+
+            target_price = float(
+                result.target_price
+            )
+
+            actual_rr = float(
+                result.actual_rr
+            )
+
+        except Exception:
+
+            logger.warning(
+                "Invalid execution values: "
+                "%s[%s] %s",
+                coin,
+                timeframe,
+                candle_time,
+            )
 
             continue
 
         # ----------------------------------------------------
-        # Structure + zone duplicate key
+        # Duplicate setup key
         # ----------------------------------------------------
 
         structure_key = (
-            str(
-                result.swing_high_time
-            ),
-            str(
-                result.swing_low_time
-            ),
-            round(
-                zone_price,
-                10,
-            ),
+            str(result.swing_high_time),
+            str(result.swing_low_time),
+            result.best_zone_name,
+            round(zone_price, 10),
         )
 
-        if (
-            structure_key
-            in recorded_zone_keys
-        ):
+        if structure_key in recorded_zone_keys:
             continue
 
         recorded_zone_keys.add(
             structure_key
         )
 
-        last_zone_price = (
-            zone_price
-        )
-
         # ----------------------------------------------------
         # Future candles
         #
-        # Current candle deliberately exclude hai.
+        # Current candle intentionally excluded.
         # ----------------------------------------------------
 
         df_after = (
@@ -849,59 +790,37 @@ def backtest_single_coin_month(
         # ----------------------------------------------------
 
         zone = {
-            "coin":
-                coin,
+            "coin": coin,
 
-            "timeframe":
-                timeframe,
+            "timeframe": timeframe,
 
-            "created_at":
-                str(candle_time),
+            "created_at": str(
+                candle_time
+            ),
 
-            "entry_price":
-                float(
-                    result.best_zone_price
-                ),
+            "entry_price": zone_price,
 
-            "stop_price":
-                float(
-                    result.stop_price
-                ),
+            "stop_price": stop_price,
 
-            "target_price":
-                float(
-                    result.target_price
-                ),
+            "target_price": target_price,
 
-            "tp2_price":
-                (
-                    float(
-                        result.tp2_price
-                    )
-                    if result.tp2_price
-                    is not None
-                    else None
-                ),
+            "tp2_price": (
+                float(result.tp2_price)
+                if result.tp2_price is not None
+                else None
+            ),
 
-            "swing_low":
-                (
-                    float(
-                        result.swing_low
-                    )
-                    if result.swing_low
-                    is not None
-                    else None
-                ),
+            "swing_low": (
+                float(result.swing_low)
+                if result.swing_low is not None
+                else None
+            ),
 
-            "swing_high":
-                (
-                    float(
-                        result.swing_high
-                    )
-                    if result.swing_high
-                    is not None
-                    else None
-                ),
+            "swing_high": (
+                float(result.swing_high)
+                if result.swing_high is not None
+                else None
+            ),
 
             "swing_low_time":
                 result.swing_low_time,
@@ -911,3 +830,36 @@ def backtest_single_coin_month(
 
             "structure_created_at":
                 result.structure_created_at,
+
+            "score": int(
+                result.best_score
+            ),
+
+            "actual_rr": actual_rr,
+
+            "level_name":
+                result.best_zone_name,
+
+            "score_breakdown":
+                result.score_breakdown,
+
+            "status":
+                "PENDING",
+
+            "touched_at":
+                None,
+
+            "resolved_at":
+                None,
+
+            "resolution_reason":
+                None,
+        }
+
+        # ----------------------------------------------------
+        # Resolve
+        # ----------------------------------------------------
+
+        zone = _resolve_zone(
+            zone=zone,
+            df_after_entry=df_after,
