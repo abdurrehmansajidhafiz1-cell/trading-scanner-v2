@@ -1,0 +1,49 @@
+name: 30-Minute Crypto Scanner & 30-Day Production Monitor
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'
+
+concurrency:
+  group: trading-scanner-run
+  cancel-in-progress: false
+
+jobs:
+  scan-and-evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run offline verification tests
+        run: python test_offline.py
+
+      - name: Run Trading Scanner
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          REPORT_EMAIL_TO: ${{ secrets.REPORT_EMAIL_TO }}
+          MIN_RR: ${{ secrets.MIN_RR }}
+        run: python main.py
+
+      - name: Commit and push database changes
+        if: always()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add trading_system.db scanner.log || true
+          git commit -m "chore: persist scanner database and logs [skip ci]" || true
+          git push || true

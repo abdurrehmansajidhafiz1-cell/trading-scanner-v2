@@ -1,0 +1,11 @@
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.class
+*.log
+.env
+.DS_Store
+Thumbs.db
+output/
+local_backtest/output/
