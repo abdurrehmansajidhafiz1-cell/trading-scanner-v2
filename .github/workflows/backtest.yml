@@ -1,0 +1,75 @@
+name: Backtest -- January 2025 (Manual Run)
+
+on:
+  workflow_dispatch:
+    inputs:
+      notify_email:
+        description: 'Email bhejo jab complete ho? (true/false)'
+        required: false
+        default: 'true'
+
+# Live scanner se bilkul alag concurrency group -- koi interference nahi
+concurrency:
+  group: backtest-run
+  cancel-in-progress: false
+
+jobs:
+  run-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run offline tests (sanity check)
+        run: python test_offline.py
+
+      - name: Run Realistic Backtest -- January 2025
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          REPORT_EMAIL_TO: ${{ secrets.REPORT_EMAIL_TO }}
+        run: |
+          cd local_backtest
+          python run_realistic_backtest.py
+
+      - name: Upload Report as Artifact (Backup)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-jan2025-report
+          path: |
+            output/backtest_report_*.txt
+            output/jan2025_realistic_zones.csv
+            output/realistic_backtest.log
+          retention-days: 30
+
+      - name: Send Error Alert Email (on failure)
+        if: failure()
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          REPORT_EMAIL_TO: ${{ secrets.REPORT_EMAIL_TO }}
+        run: |
+          python - <<'EOF'
+          import sys
+          sys.path.insert(0, '.')
+          from email_sender import send_error_alert
+          send_error_alert(
+              "Backtest Jan 2025 GitHub Actions job fail ho gaya.",
+              "GitHub Actions -> Actions tab mein logs dekhein.\nRun URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          )
+          EOF
