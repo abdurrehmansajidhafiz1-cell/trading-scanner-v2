@@ -63,11 +63,12 @@ def _cumulative_progress_section(end_dt: datetime) -> str:
 
 def _cumulative_all_time_ledger_section() -> str:
     """
-    Day 1 se aaj tak jitne bhi zones qualify hue hain, unka complete running ledger return karta hai.
+    Day 1 se aaj tak jitne bhi zones qualify hue hain, unka complete running ledger
+    user ke pasandeeda detailed block structure mein return karta hai.
     """
     all_zones = db.get_all_zones()
     lines = []
-    lines.append(f"--- CUMULATIVE ALL-TIME TRADES LEDGER (Day 1 se Aaj Tak: Total {len(all_zones)} Zones) ---")
+    lines.append(f"--- CUMULATIVE ALL-TIME TRADES & ZONES LEDGER (Day 1 se Aaj Tak: Total {len(all_zones)} Zones) ---")
     
     if not all_zones:
         lines.append("Abhi tak koi trade qualify nahi hui.")
@@ -84,43 +85,54 @@ def _cumulative_all_time_ledger_section() -> str:
     resolved_count = total_wins + total_losses
     cum_wr = (total_wins / resolved_count * 100) if resolved_count > 0 else 0.0
 
-    lines.append(f"Summary: {len(all_zones)} Total | {total_wins} Wins | {total_losses} Losses | {total_be} Breakevens | {total_pending} Pending | {total_expired} Expired | {total_timeout} Timeouts")
+    lines.append(f"Cumulative Summary: {len(all_zones)} Total | {total_wins} Wins | {total_losses} Losses | {total_be} Breakevens | {total_pending} Pending | {total_expired} Expired | {total_timeout} Timeouts")
     lines.append(f"Cumulative Win Rate: {cum_wr:.1f}% ({total_wins}/{resolved_count} resolved)\n")
 
-    lines.append(f"{'#':<3} | {'Created (PKT)':<17} | {'Coin [TF]':<15} | {'Level':<13} | {'Score':<5} | {'R:R':<6} | {'Status':<10} | {'Result / P&L'}")
-    lines.append(f"{'-' * 3}-+-{'-' * 17}-+-{'-' * 15}-+-{'-' * 13}-+-{'-' * 5}-+-{'-' * 6}-+-{'-' * 10}-+-{'-' * 20}")
-
     for idx, z in enumerate(all_zones, 1):
-        dt_str = "N/A"
-        if z.get("created_at"):
-            try:
-                dt_obj = datetime.fromisoformat(z["created_at"])
-                dt_str = tz.format_pkt(dt_obj, "%Y-%m-%d %H:%M")
-            except Exception:
-                dt_str = str(z["created_at"])[:16]
-
-        coin_tf = f"{z['coin']} [{z['timeframe']}]"
         status = z.get("status", "PENDING")
-        score_val = f"{z.get('score', 0)}"
-        rr_val = f"1:{_fmt_num(z.get('actual_rr'), 2)}"
-        level_val = str(z.get("level_name", "OTE"))[:13]
+        created_str = tz.format_both(datetime.fromisoformat(z["created_at"])) if z.get("created_at") else "N/A"
+        breakdown = json.loads(z["score_breakdown"]) if z.get("score_breakdown") else {}
 
+        lines.append(f"\n  [#{idx:>02}] {z['coin']} [{z['timeframe']}] — {status}")
+        lines.append(f"    Zone level: {z.get('level_name', '78.6% OTE')}")
+        lines.append(f"    Structure created: {created_str}")
+        lines.append(f"    Entry Price: {_fmt_num(z.get('entry_price'))}")
+        lines.append(f"    Stop Loss (ATR): {_fmt_num(z.get('stop_price'))}")
+        lines.append(f"    Take Profit: {_fmt_num(z.get('target_price'))}")
+        lines.append(f"    Risk:Reward Ratio: 1:{_fmt_num(z.get('actual_rr'), 2)}")
+        lines.append(f"    Confluence Score: {z.get('score', 0)}/100 ({breakdown})")
+        lines.append(f"    Swing Structure: {_fmt_num(z.get('swing_low'))} -> {_fmt_num(z.get('swing_high'))}")
+
+        if z.get("touched_at"):
+            try:
+                touched_str = tz.format_both(datetime.fromisoformat(z["touched_at"]))
+            except Exception:
+                touched_str = str(z["touched_at"])
+            lines.append(f"    Touched at: {touched_str}")
+
+        if z.get("resolved_at"):
+            try:
+                resolved_str = tz.format_both(datetime.fromisoformat(z["resolved_at"]))
+            except Exception:
+                resolved_str = str(z["resolved_at"])
+            lines.append(f"    Resolved at: {resolved_str}")
+
+        # Outcome summary
         if status == "WIN":
-            result_str = f"+{_fmt_num(z.get('actual_rr'), 2)} R (WIN)"
+            lines.append(f"    Trade Outcome: +{_fmt_num(z.get('actual_rr'), 2)} R (WIN)")
         elif status == "LOSS":
-            result_str = "-1.00 R (LOSS)"
+            lines.append(f"    Trade Outcome: -1.00 R (LOSS)")
         elif status == "BREAKEVEN":
-            result_str = " 0.00 R (BE)"
+            lines.append(f"    Trade Outcome:  0.00 R (BREAKEVEN)")
         elif status in ("PENDING", "ACTIVE"):
-            result_str = "Active (Monitoring)"
+            lines.append(f"    Trade Outcome: ACTIVE / MONITORING")
         elif status == "EXPIRED":
-            result_str = "Expired (Invalidated)"
+            lines.append(f"    Trade Outcome: EXPIRED (Invalidated before green confirmation)")
         elif status == "TIMEOUT":
-            result_str = "Timeout (Sideways)"
-        else:
-            result_str = status
+            lines.append(f"    Trade Outcome: TIMED OUT (Sideways chop)")
 
-        lines.append(f"{idx:>2}  | {dt_str:<17} | {coin_tf:<15} | {level_val:<13} | {score_val:>3}   | {rr_val:<6} | {status:<10} | {result_str}")
+        if z.get("post_sl_details"):
+            lines.append(f"    Post-SL Diagnosis: {z['post_sl_details']}")
 
     lines.append("")
     return "\n".join(lines)
