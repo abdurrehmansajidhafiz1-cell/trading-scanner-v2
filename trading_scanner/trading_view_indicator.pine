@@ -1,41 +1,52 @@
 //@version=6
-indicator("Trading Scanner — Intraday Fibonacci & OTE System", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+indicator("Trading Scanner — Production Intraday Fibonacci Strategy [30-Day Edition]", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_tables_count=10)
 
 // ============================================================
-// 1. INPUT PARAMETERS (Matching Python Config)
+// 1. STRATEGY INPUT PARAMETERS (Synced with Python Config)
 // ============================================================
-pivotLen          = input.int(6, title="Pivot Length", minval=2, maxval=20, group="Pivot Detection")
-atrLength         = input.int(14, title="ATR Length", minval=1, group="Risk Management")
-atrMult           = input.float(1.5, title="ATR Stop Loss Multiplier", minval=0.5, step=0.1, group="Risk Management")
-minRR             = input.float(1.5, title="Minimum Risk:Reward Ratio", minval=1.0, step=0.1, group="Risk Management")
-tp1Factor         = input.float(0.90, title="TP1 Swing High Factor (0.90 = 90%)", minval=0.5, step=0.05, group="Targets")
-tp2Ext            = input.float(1.618, title="TP2 Fib Extension Level", minval=1.0, step=0.05, group="Targets")
+grpStrategy = "Strategy & Quality Gates"
+minScore          = input.int(80, title="Minimum Confluence Score", minval=50, maxval=100, group=grpStrategy)
+minRR             = input.float(1.3, title="Minimum Risk:Reward Ratio", minval=1.0, step=0.1, group=grpStrategy)
+rsiMaxThreshold   = input.int(50, title="RSI Max Threshold (Pullback Entry)", minval=20, maxval=70, group=grpStrategy)
+requireGreenClose = input.bool(true, title="Require Bullish Green Candle Confirmation", group=grpStrategy)
 
-minScore          = input.int(70, title="Minimum Confluence Score", minval=40, maxval=100, group="Strategy Rules")
-emaLength         = input.int(50, title="Trend EMA Length", minval=10, group="Strategy Rules")
-rsiLength         = input.int(14, title="RSI Length", minval=1, group="Strategy Rules")
-rsiOversold       = input.int(40, title="RSI Oversold Threshold", minval=10, maxval=50, group="Strategy Rules")
-volLookback       = input.int(20, title="Volume Average Lookback", minval=5, group="Strategy Rules")
-volSpikeMult      = input.float(1.5, title="Volume Spike Multiplier", minval=1.0, step=0.1, group="Strategy Rules")
+grpRisk = "Risk Management & Targets"
+pivotLen          = input.int(6, title="Pivot Detection Length", minval=2, maxval=20, group=grpRisk)
+atrLength         = input.int(14, title="ATR Length", minval=1, group=grpRisk)
+atrMult           = input.float(1.2, title="ATR Stop Loss Multiplier (1.2x)", minval=0.5, step=0.1, group=grpRisk)
+tp1Factor         = input.float(0.95, title="TP1 Swing High Factor (95%)", minval=0.5, step=0.05, group=grpRisk)
+tp2Ext            = input.float(1.618, title="TP2 Fib Extension Level", minval=1.0, step=0.05, group=grpRisk)
+enableBE          = input.bool(true, title="Enable Breakeven SL at 55% Target Move", group=grpRisk)
+beRatio           = input.float(0.55, title="Breakeven Move Ratio (55%)", minval=0.3, maxval=0.8, step=0.05, group=grpRisk)
 
-// Colors
-colorOteBox       = input.color(color.new(color.blue, 85), title="OTE Zone Box Color", group="Visual Styling")
-colorEntry        = input.color(color.blue, title="Entry Line Color", group="Visual Styling")
-colorSL           = input.color(color.red, title="Stop Loss Line Color", group="Visual Styling")
-colorTP1          = input.color(color.green, title="TP1 Line Color", group="Visual Styling")
-colorTP2          = input.color(color.teal, title="TP2 Extension Color", group="Visual Styling")
+grpTrend = "Macro Trend & Momentum Filters"
+emaLengthBtc      = input.int(50, title="BTC Daily Trend EMA Length", minval=20, group=grpTrend)
+emaLengthAlt      = input.int(200, title="Altcoin Daily Macro EMA Length", minval=50, group=grpTrend)
+volLookback       = input.int(20, title="Volume Average Lookback", minval=5, group=grpTrend)
+volSpikeMult      = input.float(1.5, title="Volume Spike Multiplier", minval=1.0, step=0.1, group=grpTrend)
+
+grpVisual = "Visual Colors"
+colorOteBox       = input.color(color.new(color.blue, 82), title="OTE Zone Box Color", group=grpVisual)
+colorEntry        = input.color(#2962FF, title="Entry Line Color", group=grpVisual)
+colorSL           = input.color(#F23645, title="Stop Loss Line Color", group=grpVisual)
+colorBE           = input.color(#FF9800, title="Breakeven Line Color", group=grpVisual)
+colorTP1          = input.color(#089981, title="TP1 Line Color", group=grpVisual)
+colorTP2          = input.color(#00BCD4, title="TP2 Extension Color", group=grpVisual)
 
 // ============================================================
-// 2. INDICATORS & MARKET STRUCTURE
+// 2. INDICATORS & MARKET STRUCTURE COMPUTATION
 // ============================================================
-emaVal            = ta.ema(close, emaLength)
-rsiVal            = ta.rsi(close, rsiLength)
+ema50             = ta.ema(close, 50)
+ema200Daily       = request.security(syminfo.tickerid, "D", ta.ema(close, emaLengthAlt), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+rsiVal            = ta.rsi(close, 14)
 atrVal            = ta.atr(atrLength)
 avgVol            = ta.sma(volume, volLookback)
 hasVolSpike       = volume > (avgVol * volSpikeMult)
-isTrendUp         = close > emaVal
 
-// Pivot High / Low Detection
+// Trend alignment check (Close above EMA50 on chart & Close above Daily EMA200)
+isMacroBull       = (close > ema200Daily) and (close > ema50)
+
+// Pivot High & Low Detection
 ph = ta.pivothigh(high, pivotLen, pivotLen)
 pl = ta.pivotlow(low, pivotLen, pivotLen)
 
@@ -52,20 +63,21 @@ if not na(pl)
     lastPivotLow  := pl
     lastLowBar    := bar_index - pivotLen
 
-// Up-Leg Validation (Swing Low Time < Swing High Time)
-isUpLeg = not na(lastPivotHigh) and not na(lastPivotLow) and lastLowBar < lastHighBar
+// Up-Leg Validation (Swing Low formed before Swing High)
+isUpLeg = not na(lastPivotHigh) and not na(lastPivotLow) and (lastLowBar < lastHighBar)
 swingDiff = isUpLeg ? (lastPivotHigh - lastPivotLow) : 0.0
 
-// Fib Retracement Levels
-fib50  = isUpLeg ? (lastPivotHigh - 0.500 * swingDiff) : na
+// Fibonacci Retracement Levels
+fib500 = isUpLeg ? (lastPivotHigh - 0.500 * swingDiff) : na
 fib618 = isUpLeg ? (lastPivotHigh - 0.618 * swingDiff) : na
 fib786 = isUpLeg ? (lastPivotHigh - 0.786 * swingDiff) : na
 
-// Entry, Stop Loss & Take Profit Levels
-entryPrice  = fib618
+// Entry, Stop Loss, Breakeven & Take Profit Targets
+entryPrice  = fib786 // Primary High-Conviction OTE level
 stopPrice   = isUpLeg ? (lastPivotLow - (atrMult * atrVal)) : na
 tp1Price    = isUpLeg ? (lastPivotLow + tp1Factor * swingDiff) : na
 tp2Price    = isUpLeg ? (lastPivotLow + tp2Ext * swingDiff) : na
+beTrigger   = isUpLeg ? (entryPrice + (tp1Price - entryPrice) * beRatio) : na
 
 riskAmount   = isUpLeg ? (entryPrice - stopPrice) : 0.0
 rewardAmount = isUpLeg ? (tp1Price - entryPrice) : 0.0
@@ -75,41 +87,52 @@ actualRR     = riskAmount > 0 ? (rewardAmount / riskAmount) : 0.0
 // 3. CONFLUENCE SCORING ENGINE (Max 100 Points)
 // ============================================================
 int score = 0
-string scoreBreakdown = ""
+string scoreDetails = ""
 
 if isUpLeg and swingDiff > 0
+    // 1. OTE Zone Score (30 pts)
     inOte = (close <= fib618) and (close >= fib786)
     if inOte
         score += 30
-        scoreBreakdown += "OTE(30) "
-    else if close <= fib50 and close > fib618
+        scoreDetails += "OTE(30) "
+    else if close <= fib500 and close > fib618
         score += 18
-        scoreBreakdown += "Fib50(18) "
+        scoreDetails += "Fib50(18) "
 
-    if isTrendUp
+    // 2. HTF / Macro BOS Alignment (25 pts)
+    if isMacroBull
         score += 25
-        scoreBreakdown += "Trend(25) "
+        scoreDetails += "MacroBull(25) "
 
+    // 3. Volume Spike (20 pts)
     if hasVolSpike
         score += 20
-        scoreBreakdown += "Vol(20) "
+        scoreDetails += "VolSpike(20) "
 
-    if rsiVal <= rsiOversold
+    // 4. RSI Pullback Momentum (15 pts)
+    if rsiVal <= rsiMaxThreshold
         score += 15
-        scoreBreakdown += "RSI(15) "
+        scoreDetails += "RSI<=" + str.tostring(rsiMaxThreshold) + "(15) "
 
+    // 5. Prior Level Flip (10 pts)
     if math.abs(close - fib618) / fib618 * 100 <= 0.5
         score += 10
-        scoreBreakdown += "Flip(10)"
+        scoreDetails += "SR-Flip(10) "
+
+// Entry Trigger & Confirmation
+isGreenCandle = close > open
+zoneTouch     = low <= (entryPrice * 1.003)
+entryTrigger  = isUpLeg and (score >= minScore) and (actualRR >= minRR) and (not requireGreenClose or isGreenCandle)
 
 bool qualifies = isUpLeg and (score >= minScore) and (actualRR >= minRR)
 
 // ============================================================
-// 4. VISUAL CHART OVERLAYS (Boxes, Lines & Labels)
+// 4. VISUAL CHART OVERLAYS & DASHBOARD TABLE
 // ============================================================
 var box   oteBox   = na
 var line  lineE    = na
 var line  lineSL   = na
+var line  lineBE   = na
 var line  lineTP1  = na
 var line  lineTP2  = na
 var label badgeL   = na
@@ -118,32 +141,58 @@ if qualifies and barstate.islast
     box.delete(oteBox)
     line.delete(lineE)
     line.delete(lineSL)
+    line.delete(lineBE)
     line.delete(lineTP1)
     line.delete(lineTP2)
     label.delete(badgeL)
 
-    oteBox := box.new(left=lastLowBar, top=fib618, right=bar_index + 15, bottom=fib786, bgcolor=colorOteBox, border_color=color.blue, border_style=line.style_dotted)
+    oteBox  := box.new(left=lastLowBar, top=fib618, right=bar_index + 20, bottom=fib786, bgcolor=colorOteBox, border_color=color.blue, border_style=line.style_dotted)
+    lineE   := line.new(x1=lastHighBar, y1=entryPrice, x2=bar_index + 20, y2=entryPrice, color=colorEntry, width=2, style=line.style_solid)
+    lineSL  := line.new(x1=lastHighBar, y1=stopPrice,  x2=bar_index + 20, y2=stopPrice,  color=colorSL,    width=2, style=line.style_dashed)
+    lineBE  := line.new(x1=lastHighBar, y1=beTrigger,  x2=bar_index + 20, y2=beTrigger,  color=colorBE,    width=1, style=line.style_dotted)
+    lineTP1 := line.new(x1=lastHighBar, y1=tp1Price,   x2=bar_index + 20, y2=tp1Price,   color=colorTP1,   width=2, style=line.style_solid)
+    lineTP2 := line.new(x1=lastHighBar, y1=tp2Price,   x2=bar_index + 20, y2=tp2Price,   color=colorTP2,   width=2, style=line.style_dotted)
 
-    lineE   := line.new(x1=lastHighBar, y1=entryPrice, x2=bar_index + 15, y2=entryPrice, color=colorEntry, width=2, style=line.style_solid)
-    lineSL  := line.new(x1=lastHighBar, y1=stopPrice,  x2=bar_index + 15, y2=stopPrice,  color=colorSL,    width=2, style=line.style_dashed)
-    lineTP1 := line.new(x1=lastHighBar, y1=tp1Price,   x2=bar_index + 15, y2=tp1Price,   color=colorTP1,   width=2, style=line.style_solid)
-    lineTP2 := line.new(x1=lastHighBar, y1=tp2Price,   x2=bar_index + 15, y2=tp2Price,   color=colorTP2,   width=2, style=line.style_dotted)
+    string badgeText = "🟢 OTE PRODUCTION SETUP\nScore: " + str.tostring(score) + "/100\nRisk:Reward: 1:" + str.tostring(actualRR, "#.##") + "\nEntry: " + str.tostring(entryPrice, "#.####") + "\nStop Loss: " + str.tostring(stopPrice, "#.####") + "\n55% BE Shift: " + str.tostring(beTrigger, "#.####") + "\nTP1 Target: " + str.tostring(tp1Price, "#.####") + "\nTP2 Extension: " + str.tostring(tp2Price, "#.####")
 
-    string txt = "🟢 FIB OTE QUALIFIED!\nScore: " + str.tostring(score) + "/100\nR:R Ratio: 1:" + str.tostring(actualRR, "#.##") + "\nEntry (61.8%): " + str.tostring(entryPrice, "#.####") + "\nStop Loss: " + str.tostring(stopPrice, "#.####") + "\nTP1 Target: " + str.tostring(tp1Price, "#.####") + "\nTP2 Target: " + str.tostring(tp2Price, "#.####") + "\nFactors: " + scoreBreakdown
+    badgeL := label.new(x=bar_index + 2, y=tp1Price, text=badgeText, color=color.new(#0A192F, 10), textcolor=color.white, style=label.style_label_left, size=size.normal)
 
-    badgeL := label.new(x=bar_index + 2, y=tp1Price, text=txt, color=color.new(color.navy, 10), textcolor=color.white, style=label.style_label_left, size=size.normal)
-
+// Pivot Labels
 if not na(ph)
-    label.new(x=bar_index - pivotLen, y=ph, text="BOS / High", color=color.green, textcolor=color.white, style=label.style_label_down, size=size.small)
+    label.new(x=bar_index - pivotLen, y=ph, text="Swing High", color=color.green, textcolor=color.white, style=label.style_label_down, size=size.tiny)
 
 if not na(pl)
-    label.new(x=bar_index - pivotLen, y=pl, text="Swing Low", color=color.red, textcolor=color.white, style=label.style_label_up, size=size.small)
+    label.new(x=bar_index - pivotLen, y=pl, text="Swing Low", color=color.red, textcolor=color.white, style=label.style_label_up, size=size.tiny)
 
-plot(emaVal, title="EMA 50 Trend Line", color=isTrendUp ? color.green : color.red, linewidth=2)
+plot(ema50, title="EMA 50 Trend", color=isMacroBull ? color.green : color.red, linewidth=2)
+
+// Live Status Dashboard Table (Top-Right)
+var table dash = table.new(position.top_right, 2, 6, bgcolor=color.new(#0F172A, 15), border_color=#334155, border_width=1)
+if barstate.islast
+    table.cell(dash, 0, 0, "Strategy Engine", bgcolor=#1E293B, text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 0, qualifies ? "🟢 QUALIFIED" : "⚪ MONITORING", bgcolor=qualifies ? #065F46 : #334155, text_color=color.white, text_size=size.small)
+    
+    table.cell(dash, 0, 1, "Confluence Score", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 1, str.tostring(score) + " / 100", bgcolor=score >= 80 ? #065F46 : #1E293B, text_color=color.white, text_size=size.small)
+
+    table.cell(dash, 0, 2, "Risk:Reward (TP1)", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 2, "1 : " + str.tostring(actualRR, "#.##"), text_color=color.white, text_size=size.small)
+
+    table.cell(dash, 0, 3, "Macro Regime", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 3, isMacroBull ? "🐂 BULLISH" : "🐻 BEARISH", text_color=isMacroBull ? color.green : color.red, text_size=size.small)
+
+    table.cell(dash, 0, 4, "RSI (14)", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 4, str.tostring(rsiVal, "#.#"), text_color=rsiVal <= 50 ? color.green : color.yellow, text_size=size.small)
+
+    table.cell(dash, 0, 5, "Volume Spike", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 5, hasVolSpike ? "⚡ YES (>1.5x)" : "NORMAL", text_color=hasVolSpike ? color.green : color.gray, text_size=size.small)
 
 // ============================================================
 // 5. TRADINGVIEW REAL-TIME ALERTS
 // ============================================================
-alertcondition(qualifies, title="Trading Scanner — OTE Zone Qualified", message="🟢 FIB OTE ZONE QUALIFIED! Check chart for Entry, Stop Loss, and Take Profit levels.")
-alertcondition(ta.crossover(close, tp1Price), title="Trading Scanner — TP1 Reached", message="🎯 TARGET TP1 REACHED! Position 80% locked.")
-alertcondition(ta.crossunder(close, stopPrice), title="Trading Scanner — Stop Loss Hit", message="🛑 STOP LOSS HIT! Trade exited.")
+alertcondition(qualifies, title="Trading Scanner — OTE Zone Qualified", message="🟢 FIB OTE ZONE QUALIFIED! Score >= 80, Check chart for Entry & Levels.")
+alertcondition(entryTrigger, title="Trading Scanner — Entry Triggered (Green Confirmation)", message="🚀 ENTRY TRIGGERED! Price touched OTE with Bullish Green Confirmation.")
+alertcondition(ta.crossover(high, beTrigger), title="Trading Scanner — Breakeven Triggered (55% Move)", message="🛡️ BREAKEVEN ACTIVATED! Price moved 55% towards TP1. Shift Stop Loss to Entry Price.")
+alertcondition(ta.crossover(high, tp1Price), title="Trading Scanner — TP1 Target Reached", message="🎯 TARGET TP1 REACHED! Position secured.")
+alertcondition(ta.crossunder(low, stopPrice), title="Trading Scanner — Stop Loss Hit", message="🛑 STOP LOSS HIT! Trade closed.")
+

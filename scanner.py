@@ -48,33 +48,67 @@ def resolve_pending_zones(exchange, coin: str, timeframe: str):
         return
 
     tf_cfg = config.TF_SETTINGS[timeframe]
+    from failure_analyzer import diagnose_trade_outcome
 
     for zone in pending:
         created_at_ts = pd.Timestamp(zone["created_at"])
         if created_at_ts.tzinfo is None:
             created_at_ts = created_at_ts.tz_localize("UTC")
 
-        relevant_candles = df[df["timestamp"] >= created_at_ts]
+        relevant_candles = df[df["timestamp"] >= created_at_ts].reset_index(drop=True)
         touched = zone["status"] == "ACTIVE"
         touched_at = zone["touched_at"]
         resolved = False
+        be_moved = False
+        current_stop = zone["stop_price"]
 
-        for _, candle in relevant_candles.iterrows():
+        be_ratio = getattr(config, "BREAKEVEN_TRIGGER_RATIO", 0.55)
+        be_trigger = zone["entry_price"] + (zone["target_price"] - zone["entry_price"]) * be_ratio
+        has_touched_zone = False
+
+        for idx, candle in relevant_candles.iterrows():
             candle_ts_str = str(candle["timestamp"])
 
             if not touched:
-                if candle["low"] <= zone["entry_price"] * (1 + tf_cfg["zone_tolerance_pct"] / 100):
-                    touched = True
-                    touched_at = candle_ts_str
-                    db.update_zone_status(zone["id"], "ACTIVE", touched_at=touched_at)
+                touch_threshold = zone["entry_price"] * (1 + tf_cfg["zone_tolerance_pct"] / 100)
+                if candle["low"] <= touch_threshold:
+                    has_touched_zone = True
+
+                if has_touched_zone:
+                    # Agar confirmation se pehle hi stop loss hit ho jaye -> EXPIRED (invalidated)
+                    if candle["low"] <= current_stop:
+                        db.update_zone_status(zone["id"], "EXPIRED", resolved_at=candle_ts_str)
+                        resolved = True
+                        break
+
+                    # Reversal Green Candle Confirmation
+                    if candle["close"] > candle["open"]:
+                        touched = True
+                        touched_at = candle_ts_str
+                        db.update_zone_status(zone["id"], "ACTIVE", touched_at=touched_at)
 
             if touched:
+                # 55% Breakeven SL Activation
+                if getattr(config, "ENABLE_BREAKEVEN_SL", True) and not be_moved:
+                    if candle["high"] >= be_trigger:
+                        be_moved = True
+                        current_stop = zone["entry_price"]
+
                 if candle["high"] >= zone["target_price"]:
                     db.update_zone_status(zone["id"], "WIN", touched_at=touched_at, resolved_at=candle_ts_str)
                     resolved = True
                     break
-                elif candle["low"] <= zone["stop_price"]:
-                    db.update_zone_status(zone["id"], "LOSS", touched_at=touched_at, resolved_at=candle_ts_str)
+                elif candle["low"] <= current_stop:
+                    if be_moved:
+                        db.update_zone_status(zone["id"], "BREAKEVEN", touched_at=touched_at, resolved_at=candle_ts_str)
+                    else:
+                        db.update_zone_status(zone["id"], "LOSS", touched_at=touched_at, resolved_at=candle_ts_str)
+                        # Post-SL Price Action Diagnosis
+                        candles_after_sl = relevant_candles.iloc[idx + 1: idx + 20]
+                        diag = diagnose_trade_outcome(zone, candles_after_sl)
+                        if diag.get("post_sl_behavior"):
+                            db.update_zone_post_sl_info(zone["id"], diag["post_sl_behavior"], diag["post_sl_details"])
+
                     resolved = True
                     break
 

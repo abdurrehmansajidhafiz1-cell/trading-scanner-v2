@@ -16,7 +16,7 @@ import logging
 import database as db
 from scanner import scan_once
 from reporting import (
-    generate_report, should_send_report, due_intraday_reports,
+    generate_report, generate_3day_failure_diagnosis_report, should_send_report, due_intraday_reports,
     mark_boundary_sent, mark_period_sent,
     generate_welcome_email, is_first_ever_run, mark_system_initialized,
 )
@@ -45,9 +45,9 @@ def check_and_send_reports():
             logger.error(f"{period_label} email send failed — boundary not advanced, will retry next run.")
             break
 
-    # Periodic 3-Day, 15-Day & 30-Day Evaluation Reports
+    # Periodic 3-Day Diagnostic, 15-Day Progress & 30-Day Evaluation Reports
     periods = [
-        ("3day", "3-Day Summary Report"),
+        ("3day", "3-Day Failure & Non-Winning Diagnostic Report"),
         ("15day", "15-Day Strategy Progress Report"),
         ("monthly", "30-Day Strategy Evaluation & Failure Diagnosis Report"),
     ]
@@ -55,8 +55,12 @@ def check_and_send_reports():
     for period_key, period_label in periods:
         due, start_dt, end_dt = should_send_report(period_key)
         if due:
-            logger.info(f"{period_label} due, generating...")
-            report_text = generate_report(period_label, start_dt, end_dt, include_cumulative=True)
+            logger.info(f"{period_label} due ({tz.format_both(start_dt)} -> {tz.format_both(end_dt)}), generating...")
+            if period_key == "3day":
+                report_text = generate_3day_failure_diagnosis_report(start_dt, end_dt)
+            else:
+                report_text = generate_report(period_label, start_dt, end_dt, include_cumulative=True)
+
             subject = f"Trading System — {period_label} ({tz.format_pkt(end_dt, '%Y-%m-%d')})"
             sent = send_email(subject, report_text)
             if sent:

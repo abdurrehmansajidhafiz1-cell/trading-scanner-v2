@@ -61,6 +61,71 @@ def _cumulative_progress_section(end_dt: datetime) -> str:
     return "\n".join(lines)
 
 
+def _cumulative_all_time_ledger_section() -> str:
+    """
+    Day 1 se aaj tak jitne bhi zones qualify hue hain, unka complete running ledger return karta hai.
+    """
+    all_zones = db.get_all_zones()
+    lines = []
+    lines.append(f"--- CUMULATIVE ALL-TIME TRADES LEDGER (Day 1 se Aaj Tak: Total {len(all_zones)} Zones) ---")
+    
+    if not all_zones:
+        lines.append("Abhi tak koi trade qualify nahi hui.")
+        lines.append("")
+        return "\n".join(lines)
+
+    total_wins = sum(1 for z in all_zones if z["status"] == "WIN")
+    total_losses = sum(1 for z in all_zones if z["status"] == "LOSS")
+    total_be = sum(1 for z in all_zones if z["status"] == "BREAKEVEN")
+    total_pending = sum(1 for z in all_zones if z["status"] in ("PENDING", "ACTIVE"))
+    total_expired = sum(1 for z in all_zones if z["status"] == "EXPIRED")
+    total_timeout = sum(1 for z in all_zones if z["status"] == "TIMEOUT")
+
+    resolved_count = total_wins + total_losses
+    cum_wr = (total_wins / resolved_count * 100) if resolved_count > 0 else 0.0
+
+    lines.append(f"Summary: {len(all_zones)} Total | {total_wins} Wins | {total_losses} Losses | {total_be} Breakevens | {total_pending} Pending | {total_expired} Expired | {total_timeout} Timeouts")
+    lines.append(f"Cumulative Win Rate: {cum_wr:.1f}% ({total_wins}/{resolved_count} resolved)\n")
+
+    lines.append(f"{'#':<3} | {'Created (PKT)':<17} | {'Coin [TF]':<15} | {'Level':<13} | {'Score':<5} | {'R:R':<6} | {'Status':<10} | {'Result / P&L'}")
+    lines.append(f"{'-' * 3}-+-{'-' * 17}-+-{'-' * 15}-+-{'-' * 13}-+-{'-' * 5}-+-{'-' * 6}-+-{'-' * 10}-+-{'-' * 20}")
+
+    for idx, z in enumerate(all_zones, 1):
+        dt_str = "N/A"
+        if z.get("created_at"):
+            try:
+                dt_obj = datetime.fromisoformat(z["created_at"])
+                dt_str = tz.format_pkt(dt_obj, "%Y-%m-%d %H:%M")
+            except Exception:
+                dt_str = str(z["created_at"])[:16]
+
+        coin_tf = f"{z['coin']} [{z['timeframe']}]"
+        status = z.get("status", "PENDING")
+        score_val = f"{z.get('score', 0)}"
+        rr_val = f"1:{_fmt_num(z.get('actual_rr'), 2)}"
+        level_val = str(z.get("level_name", "OTE"))[:13]
+
+        if status == "WIN":
+            result_str = f"+{_fmt_num(z.get('actual_rr'), 2)} R (WIN)"
+        elif status == "LOSS":
+            result_str = "-1.00 R (LOSS)"
+        elif status == "BREAKEVEN":
+            result_str = " 0.00 R (BE)"
+        elif status in ("PENDING", "ACTIVE"):
+            result_str = "Active (Monitoring)"
+        elif status == "EXPIRED":
+            result_str = "Expired (Invalidated)"
+        elif status == "TIMEOUT":
+            result_str = "Timeout (Sideways)"
+        else:
+            result_str = status
+
+        lines.append(f"{idx:>2}  | {dt_str:<17} | {coin_tf:<15} | {level_val:<13} | {score_val:>3}   | {rr_val:<6} | {status:<10} | {result_str}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def generate_report(period_label: str, start_dt: datetime, end_dt: datetime, include_cumulative: bool = True) -> str:
     start_iso = start_dt.isoformat()
     end_iso = end_dt.isoformat()
@@ -103,6 +168,8 @@ def generate_report(period_label: str, start_dt: datetime, end_dt: datetime, inc
 
     if include_cumulative:
         lines.append(_cumulative_progress_section(end_dt))
+        # Change 1: Complete Day 1 to Today all-time trades ledger in every email!
+        lines.append(_cumulative_all_time_ledger_section())
         lines.append("--- CURRENT REPORTING PERIOD ACTIVITY ---")
 
     lines.append(f"Coins Scanned Count:               {coins_scanned}")
@@ -148,6 +215,8 @@ def generate_report(period_label: str, start_dt: datetime, end_dt: datetime, inc
                 lines.append(f"    Touched at: {tz.format_both(datetime.fromisoformat(z['touched_at']))}")
             if z["resolved_at"]:
                 lines.append(f"    Resolved at: {tz.format_both(datetime.fromisoformat(z['resolved_at']))}")
+            if z.get("post_sl_details"):
+                lines.append(f"    Post-SL Diagnosis: {z['post_sl_details']}")
     else:
         lines.append("--- QUALIFIED TRADES ---")
         lines.append("Is period mein koi naya setup qualify nahi hua.")
@@ -163,6 +232,117 @@ def generate_report(period_label: str, start_dt: datetime, end_dt: datetime, inc
         lines.append("Is period mein koi setup reject nahi hua.")
 
     lines.append(f"\n{'=' * 55}")
+    return "\n".join(lines)
+
+
+def generate_3day_failure_diagnosis_report(start_dt: datetime, end_dt: datetime) -> str:
+    """
+    Change 2: Har 3 din ke cycle ke baad tamam non-winning setups (Loss, Timeout, Expired, Rejected)
+    ka in-depth failure & post-SL price action breakdown generate karta hai.
+    """
+    start_iso = start_dt.isoformat()
+    end_iso = end_dt.isoformat()
+
+    zones = db.get_zones_in_window(start_iso, end_iso)
+    rejected = db.get_rejected_in_window(start_iso, end_iso)
+
+    wins = [z for z in zones if z["status"] == "WIN"]
+    losses = [z for z in zones if z["status"] == "LOSS"]
+    expired = [z for z in zones if z["status"] == "EXPIRED"]
+    timed_out = [z for z in zones if z["status"] == "TIMEOUT"]
+
+    lines = []
+    lines.append(f"{'=' * 60}")
+    lines.append("3-DAY CYCLE NON-WINNING & FAILURE DIAGNOSTIC REPORT")
+    lines.append(f"Evaluation Cycle: {tz.format_both(start_dt)} -> {tz.format_both(end_dt)}")
+    lines.append(f"{'=' * 60}\n")
+
+    lines.append("--- 3-DAY PERFORMANCE SUMMARY ---")
+    lines.append(f"Total Qualified Setups:     {len(zones)}")
+    lines.append(f"  Successful Wins:          {len(wins)}")
+    lines.append(f"  Losses:                   {len(losses)}")
+    lines.append(f"  Expired (Invalidated):    {len(expired)}")
+    lines.append(f"  Timed Out (Sideways):     {len(timed_out)}")
+    lines.append(f"Total Filtered Rejections:  {len(rejected)}\n")
+
+    # Section 1: Detailed Loss Diagnoses & Post-Stop Loss Price Action
+    lines.append("============================================================")
+    lines.append("SECTION 1: LOSS TRADES DEEP DIAGNOSIS & POST-SL ACTION")
+    lines.append("============================================================")
+    if losses:
+        fakeout_count = 0
+        breakdown_count = 0
+        for idx, z in enumerate(losses, 1):
+            created_str = tz.format_both(datetime.fromisoformat(z["created_at"])) if z.get("created_at") else "N/A"
+            resolved_str = tz.format_both(datetime.fromisoformat(z["resolved_at"])) if z.get("resolved_at") else "N/A"
+            post_details = z.get("post_sl_details") or "Price did not recover after SL hit."
+            behavior = z.get("post_sl_behavior") or "STRUCTURE_BREAKDOWN"
+
+            if behavior == "WICK_SWEEP_FAKEOUT":
+                fakeout_count += 1
+            else:
+                breakdown_count += 1
+
+            lines.append(f"\n[Loss #{idx}] {z['coin']} [{z['timeframe']}] — {z['level_name']}")
+            lines.append(f"  • Entry: {_fmt_num(z['entry_price'])} | Stop Loss: {_fmt_num(z['stop_price'])} | TP: {_fmt_num(z['target_price'])}")
+            lines.append(f"  • Confluence Score: {z['score']}/100 | Risk:Reward: 1:{_fmt_num(z['actual_rr'], 2)}")
+            lines.append(f"  • Created: {created_str}")
+            lines.append(f"  • Resolved (SL Hit): {resolved_str}")
+            lines.append(f"  • Post-SL Behavior: {behavior}")
+            lines.append(f"  • Price Action Analysis: {post_details}")
+
+        lines.append("\n📊 Loss Behavior Breakdown:")
+        lines.append(f"  - Fakeout / Wick-Sweep Losses: {fakeout_count} (Setup direction was right, SL was tight)")
+        lines.append(f"  - Genuine Cascade Breakdowns:  {breakdown_count} (SL protected capital from deeper dump)")
+    else:
+        lines.append("✅ Is 3-day cycle mein koi trade loss nahi hui! Excellent performance.")
+
+    # Section 2: Expired & Invalidated Setups
+    lines.append("\n============================================================")
+    lines.append("SECTION 2: EXPIRED & INVALIDATED SETUPS (NO ENTRY)")
+    lines.append("============================================================")
+    if expired:
+        lines.append(f"Total {len(expired)} setup(s) expire/invalidate hue (Green confirmation na milne ki wajah se capital bacha):")
+        for idx, z in enumerate(expired, 1):
+            lines.append(f"  {idx}. {z['coin']} [{z['timeframe']}] {z['level_name']} @ {_fmt_num(z['entry_price'])} (Score: {z['score']}/100)")
+            lines.append(f"     Reason: Price dropped through zone without bullish green close.")
+    else:
+        lines.append("Is 3-day cycle mein koi setup expire nahi hua.")
+
+    # Section 3: Timed Out Setups
+    lines.append("\n============================================================")
+    lines.append("SECTION 3: TIMED-OUT SETUPS (SIDEWAYS CONSOLIDATION)")
+    lines.append("============================================================")
+    if timed_out:
+        for idx, z in enumerate(timed_out, 1):
+            lines.append(f"  {idx}. {z['coin']} [{z['timeframe']}] {z['level_name']} — Maximum holding bars exceed hue without hitting TP/SL.")
+    else:
+        lines.append("Is 3-day cycle mein koi setup timeout nahi hua.")
+
+    # Section 4: Filter Rejection Root Causes
+    lines.append("\n============================================================")
+    lines.append("SECTION 4: TOP FILTER REJECTION ROOT CAUSES")
+    lines.append("============================================================")
+    if rejected:
+        reasons = {}
+        for r in rejected:
+            reasons[r["reason_code"]] = reasons.get(r["reason_code"], 0) + 1
+        for r_code, count in sorted(reasons.items(), key=lambda x: -x[1]):
+            lines.append(f"  • {r_code}: {count} instance(s)")
+    else:
+        lines.append("Koi setup reject nahi hua.")
+
+    # Section 5: Strategic Takeaway & Recommendations
+    lines.append("\n============================================================")
+    lines.append("SECTION 5: STRATEGIC ACTIONABLE TAKEAWAYS")
+    lines.append("============================================================")
+    if losses:
+        lines.append("• Stop Loss Buffer Review: Check whether Wick-Sweep Fakeouts exceed Cascade Breakdowns.")
+        lines.append("• Reversal Confirmation: Green closed candle entry filter continues to prevent falling knife traps.")
+    else:
+        lines.append("• System executing with high conviction and strict discipline.")
+
+    lines.append(f"\n{'=' * 60}")
     return "\n".join(lines)
 
 

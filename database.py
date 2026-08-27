@@ -108,11 +108,16 @@ def init_db():
                 coin_list TEXT
             )
         """)
-        # Safe migration if table exists without coin_list column
-        try:
-            cur.execute("ALTER TABLE scan_log ADD COLUMN coin_list TEXT;")
-        except Exception:
-            pass  # column already exists
+        # Safe migration if table exists without new columns
+        for col_def in [
+            ("scan_log", "coin_list TEXT"),
+            ("zones", "post_sl_behavior TEXT"),
+            ("zones", "post_sl_details TEXT"),
+        ]:
+            try:
+                cur.execute(f"ALTER TABLE {col_def[0]} ADD COLUMN {col_def[1]};")
+            except Exception:
+                pass  # column already exists
 
 
 # ---------------- system_config helpers ----------------
@@ -213,10 +218,24 @@ def update_zone_status(zone_id, status, touched_at=None, resolved_at=None):
 def get_zones_in_window(start_iso, end_iso):
     with db_cursor() as cur:
         cur.execute(
-            "SELECT * FROM zones WHERE created_at >= ? AND created_at < ? ORDER BY created_at",
+            "SELECT * FROM zones WHERE created_at >= ? AND created_at < ? ORDER BY created_at ASC",
             (start_iso, end_iso),
         )
         return [dict(r) for r in cur.fetchall()]
+
+
+def get_all_zones():
+    """Day 1 se aaj tak ke tamam recorded zones return karta hai."""
+    with db_cursor() as cur:
+        cur.execute("SELECT * FROM zones ORDER BY created_at ASC")
+        return [dict(r) for r in cur.fetchall()]
+
+
+def update_zone_post_sl_info(zone_id: int, behavior: str, details: str):
+    """Loss trade ke baad price action diagnosis (Fakeout vs Dump) save karta hai."""
+    with db_cursor() as cur:
+        cur.execute("UPDATE zones SET post_sl_behavior=?, post_sl_details=? WHERE id=?",
+                    (behavior, details, zone_id))
 
 
 # ---------------- rejected_zones helpers ----------------
