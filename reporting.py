@@ -14,7 +14,6 @@ from datetime import datetime, timezone, timedelta, time as dtime
 import database as db
 import timezone_utils as tz
 import config
-from backtester import run_15day_rolling_backtest
 
 # Dual Reports: Fixed PKT Wall-Clock Schedules (06:00 AM PKT & 06:00 PM PKT)
 DAILY_REPORT_TIME_PKT = dtime(6, 0)     # subah 06:00 AM PKT
@@ -33,29 +32,76 @@ def _get_system_start_dt() -> datetime:
 
 
 def _cumulative_progress_section(end_dt: datetime) -> str:
-    bt = run_15day_rolling_backtest(start_dt=_get_system_start_dt(), end_dt=end_dt)
-    
+    all_zones = db.get_all_zones()
+    wins = [z for z in all_zones if z["status"] == "WIN"]
+    losses = [z for z in all_zones if z["status"] == "LOSS"]
+    breakevens = [z for z in all_zones if z["status"] == "BREAKEVEN"]
+    pending = [z for z in all_zones if z["status"] in ("PENDING", "ACTIVE")]
+    expired = [z for z in all_zones if z["status"] == "EXPIRED"]
+    timed_out = [z for z in all_zones if z["status"] == "TIMEOUT"]
+
+    resolved_count = len(wins) + len(losses)
+    win_rate = (len(wins) / resolved_count * 100) if resolved_count > 0 else 0.0
+
+    fee_cost = (0.075 + 0.04) / 100 * 2
+    net_pnl = sum((z.get("actual_rr") or 0) - fee_cost for z in wins) - sum(1.0 + fee_cost for z in losses)
+    net_pnl += sum((z.get("actual_rr") or 0) - fee_cost for z in breakevens if (z.get("actual_rr") or 0) > 0)
+
+    gross_profit = sum(z.get("actual_rr") or 0 for z in wins) + sum(z.get("actual_rr") or 0 for z in breakevens if (z.get("actual_rr") or 0) > 0)
+    gross_loss = len(losses) * 1.0
+    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (float("inf") if gross_profit > 0 else 1.0)
+    pf_str = f"{profit_factor:.2f}" if profit_factor != float("inf") else "inf"
+
+    # Drawdown and streaks calculation
+    cum_r = 0.0
+    peak_r = 0.0
+    max_dd = 0.0
+    cur_consec_wins = 0
+    cur_consec_losses = 0
+    max_consec_wins = 0
+    max_consec_losses = 0
+
+    for z in sorted(all_zones, key=lambda x: str(x.get("created_at", ""))):
+        st = z["status"]
+        if st == "WIN":
+            r_val = (z.get("actual_rr") or 1.5) - fee_cost
+            cum_r += r_val
+            cur_consec_wins += 1
+            cur_consec_losses = 0
+        elif st == "LOSS":
+            cum_r -= (1.0 + fee_cost)
+            cur_consec_losses += 1
+            cur_consec_wins = 0
+        elif st == "BREAKEVEN":
+            r_val = (z.get("actual_rr") or 0.0) - fee_cost if (z.get("actual_rr") or 0.0) > 0 else -fee_cost
+            cum_r += r_val
+            cur_consec_wins = 0
+            cur_consec_losses = 0
+        else:
+            continue
+
+        peak_r = max(peak_r, cum_r)
+        max_dd = max(max_dd, peak_r - cum_r)
+        max_consec_wins = max(max_consec_wins, cur_consec_wins)
+        max_consec_losses = max(max_consec_losses, cur_consec_losses)
+
     lines = []
     lines.append("--- CUMULATIVE ROLLING PROGRESS (Day 1 se Aaj Tak) ---")
     lines.append(f"Backtest Start Date (Day 1): {tz.format_both(_get_system_start_dt())}")
     lines.append(f"Current Date:               {tz.format_both(end_dt)}")
-    lines.append(f"Total Trades Qualified:     {bt['total_trades']}")
-    lines.append(f"  Wins:                     {bt['wins']}")
-    lines.append(f"  Losses:                   {bt['losses']}")
-    lines.append(f"  Active/Pending:           {bt['active_pending']}")
-    lines.append(f"  Expired (never touched):  {bt['expired']}")
-    lines.append(f"  Timed Out (range end):    {bt['timed_out']}")
-    lines.append(f"Cumulative Win Rate:        {bt['win_rate_pct']:.1f}%")
-    lines.append(f"Cumulative Net P&L (R):     {bt['net_pnl_r']:+.2f} R")
-    lines.append(f"Profit Factor:              {bt['profit_factor']:.2f}")
-    lines.append(f"Max Drawdown:               {bt['max_drawdown_r']:.2f} R")
-    lines.append(f"Max Consecutive Wins:       {bt['max_consecutive_wins']}")
-    lines.append(f"Max Consecutive Losses:     {bt['max_consecutive_losses']}")
-    
-    if bt["failure_causes"]:
-        lines.append("\nTop Loss Root Causes (Cumulative):")
-        for cause, count in sorted(bt["failure_causes"].items(), key=lambda x: -x[1]):
-            lines.append(f"  - {cause}: {count} trade(s)")
+    lines.append(f"Total Trades Qualified:     {len(all_zones)}")
+    lines.append(f"  Wins:                     {len(wins)}")
+    lines.append(f"  Losses:                   {len(losses)}")
+    lines.append(f"  Breakevens (0R / Partial):{len(breakevens)}")
+    lines.append(f"  Active/Pending:           {len(pending)}")
+    lines.append(f"  Expired (never touched):  {len(expired)}")
+    lines.append(f"  Timed Out (range end):    {len(timed_out)}")
+    lines.append(f"Cumulative Win Rate:        {win_rate:.1f}%")
+    lines.append(f"Cumulative Net P&L (R):     {net_pnl:+.2f} R")
+    lines.append(f"Profit Factor:              {pf_str}")
+    lines.append(f"Max Drawdown:               {max_dd:.2f} R")
+    lines.append(f"Max Consecutive Wins:       {max_consec_wins}")
+    lines.append(f"Max Consecutive Losses:     {max_consec_losses}")
 
     lines.append("")
     return "\n".join(lines)

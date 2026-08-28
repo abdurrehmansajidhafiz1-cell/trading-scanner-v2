@@ -17,7 +17,7 @@ import database as db
 from signal_engine import analyze
 from coin_universe import fetch_top_coins
 from failure_analyzer import diagnose_trade_outcome
-from backtester import run_15day_rolling_backtest
+from local_backtest.local_backtester import compute_metrics
 from reporting import generate_report, due_intraday_reports
 
 
@@ -89,21 +89,26 @@ def test_failure_analyzer():
     print("Failure Analyzer Test: OK\n")
 
 
-def test_backtester_15day():
-    print("=== Testing backtester.run_15day_rolling_backtest() ===")
-    db.init_db()
-    db.insert_zone(
-        coin="BTC/USDT", timeframe="4h", level_name="61.8% OTE", entry_price=64528.0,
-        stop_price=62685.0, target_price=67300.0, swing_low=63000.0, swing_high=67300.0,
-        score=85, actual_rr=1.85, pivot_len=6, created_at=datetime.now(timezone.utc).isoformat(),
-        score_breakdown={"ote_zone": 30, "htf_bos_alignment": 25, "volume_expansion": 20, "rsi_divergence_or_os": 10},
-    )
+def test_backtester_engine():
+    print("=== Testing local_backtester.compute_metrics() ===")
+    sample_zones = [
+        {
+            "coin": "BTC/USDT", "timeframe": "4h", "status": "WIN",
+            "entry_price": 64528.0, "stop_price": 62685.0, "target_price": 67300.0,
+            "actual_rr": 1.85, "created_at": datetime.now(timezone.utc).isoformat(),
+        },
+        {
+            "coin": "ETH/USDT", "timeframe": "1h", "status": "BREAKEVEN",
+            "entry_price": 3500.0, "stop_price": 3400.0, "target_price": 3700.0,
+            "actual_rr": 0.50, "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ]
 
-    bt = run_15day_rolling_backtest()
+    bt = compute_metrics(sample_zones)
     print(f"Total Trades: {bt['total_trades']}")
     print(f"Net P&L (R): {bt['net_pnl_r']:.2f}")
     print(f"Profit Factor: {bt['profit_factor']:.2f}")
-    print("Backtester 15-Day Test: OK\n")
+    print("Backtester Engine Test: OK\n")
 
 
 def test_database():
@@ -129,7 +134,7 @@ if __name__ == "__main__":
     test_signal_engine()
     test_dynamic_universe()
     test_failure_analyzer()
-    test_backtester_15day()
+    test_backtester_engine()
     test_database()
     test_reporting()
     print("=== All offline tests ran and passed cleanly ===")
