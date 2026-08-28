@@ -78,10 +78,15 @@ def _resolve_zone(zone: dict, df_after_entry: pd.DataFrame, tf_cfg: dict) -> dic
     be_trigger = zone["entry_price"] + (zone["target_price"] - zone["entry_price"]) * be_ratio
 
     has_touched_zone = False
+    max_trade_high = zone["entry_price"]
+    min_before_touch = float("inf")
+    max_before_touch = float("-inf")
 
     for idx, (_, candle) in enumerate(df_after_entry.iterrows()):
         if not touched:
             touch_threshold = zone["entry_price"] * (1 + tf_cfg["zone_tolerance_pct"] / 100)
+            min_before_touch = min(min_before_touch, candle["low"])
+            max_before_touch = max(max_before_touch, candle["high"])
             
             # Check if price has entered/touched the zone
             if candle["low"] <= touch_threshold:
@@ -92,6 +97,7 @@ def _resolve_zone(zone: dict, df_after_entry: pd.DataFrame, tf_cfg: dict) -> dic
                 if candle["low"] <= current_stop:
                     zone["status"] = "EXPIRED"  # Invalidated before entry
                     zone["resolved_at"] = str(candle["timestamp"])
+                    zone["diagnosis"] = "Invalidated: Price crashed below Stop Loss before bullish green candle confirmation."
                     return zone
 
                 # Confirmation: green candle close inside/near the zone
@@ -99,9 +105,12 @@ def _resolve_zone(zone: dict, df_after_entry: pd.DataFrame, tf_cfg: dict) -> dic
                     touched = True
                     touched_at = str(candle["timestamp"])
                     zone["touched_at"] = touched_at
+                    max_trade_high = candle["high"]
 
         if touched:
-            # Breakeven SL activation: agar price 70% target reach kare to SL entry price pe shift
+            max_trade_high = max(max_trade_high, candle["high"])
+
+            # Breakeven SL activation: agar price 55% target reach kare to SL entry price pe shift
             if getattr(config, "ENABLE_BREAKEVEN_SL", False) and not be_moved:
                 if candle["high"] >= be_trigger:
                     be_moved = True
@@ -110,28 +119,57 @@ def _resolve_zone(zone: dict, df_after_entry: pd.DataFrame, tf_cfg: dict) -> dic
             if candle["high"] >= zone["target_price"]:
                 zone["status"] = "WIN"
                 zone["resolved_at"] = str(candle["timestamp"])
+                zone["diagnosis"] = f"Clean OTE Bounce: Reached Target {zone['target_price']:.4f} (+{zone.get('actual_rr', 0):.2f}R net profit)."
                 return zone
             elif candle["low"] <= current_stop:
                 if be_moved:
                     zone["status"] = "BREAKEVEN"
                     zone["resolved_at"] = str(candle["timestamp"])
+                    tp_dist = zone["target_price"] - zone["entry_price"]
+                    pct_tp = round(((max_trade_high - zone["entry_price"]) / tp_dist * 100), 1) if tp_dist > 0 else 0
+                    zone["diagnosis"] = (
+                        f"Breakeven Retrace: Price reached {pct_tp}% of Target (Max High: {max_trade_high:.4f}), "
+                        f"activated BE SL, then retraced back to Entry ({zone['entry_price']:.4f})."
+                    )
                     return zone
                 else:
                     zone["status"] = "LOSS"
                     zone["resolved_at"] = str(candle["timestamp"])
+                    # Post-SL Price Action Diagnosis (Fakeout vs Breakdown)
+                    try:
+                        from failure_analyzer import diagnose_trade_outcome
+                        candles_after_sl = df_after_entry.iloc[idx + 1: idx + 25]
+                        diag = diagnose_trade_outcome(zone, candles_after_sl)
+                        zone["post_sl_behavior"] = diag.get("post_sl_behavior")
+                        zone["post_sl_details"] = diag.get("post_sl_details")
+                        zone["diagnosis"] = diag.get("post_sl_details") or "Price did not recover after SL."
+                    except Exception:
+                        zone["diagnosis"] = "SL hit: price dumped below stop loss."
                     return zone
 
         if idx > age_limit:
             if not touched:
                 zone["status"] = "EXPIRED"
                 zone["resolved_at"] = str(candle["timestamp"])
+                fib_618 = zone["swing_high"] - (zone["swing_high"] - zone["swing_low"]) * 0.618
+                if min_before_touch <= fib_618:
+                    zone["diagnosis"] = (
+                        f"Missed Dip (Shallow Pullback): Price bounced from 61.8% Fib ({fib_618:.4f}, Lowest: {min_before_touch:.4f}) "
+                        f"without reaching deep 78.6% OTE Entry ({zone['entry_price']:.4f})."
+                    )
+                else:
+                    zone["diagnosis"] = f"Impulse Rally: Price moved up without significant pullback (Lowest dip: {min_before_touch:.4f})."
+                if max_before_touch >= zone["target_price"]:
+                    zone["diagnosis"] += f" Target ({zone['target_price']:.4f}) was hit during the upward move."
             else:
                 zone["status"] = "TIMEOUT"
                 zone["resolved_at"] = str(candle["timestamp"])
+                zone["diagnosis"] = f"Timeout: Price stayed within range for {age_limit} bars without hitting TP or SL."
             return zone
 
     zone["status"] = "PENDING"
     zone["resolved_at"] = None
+    zone["diagnosis"] = "Pending: Zone currently open, awaiting entry or target resolution."
     return zone
 
 

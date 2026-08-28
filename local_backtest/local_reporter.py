@@ -47,7 +47,7 @@ def render_day_table(day_breakdown: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_month_section(month_key: str, market_type: str, metrics: dict, day_breakdown: dict, zones: list) -> str:
+def render_month_section(month_key: str, market_type: str, metrics: dict, day_breakdown: dict, zones: list, selected_coins: list | None = None) -> str:
     m = metrics
     pf_str = f"{m['profit_factor']:.2f}" if m["profit_factor"] != float("inf") else "inf"
     resolved_count = m["wins"] + m["losses"] + m.get("breakevens", 0)
@@ -69,6 +69,13 @@ def render_month_section(month_key: str, market_type: str, metrics: dict, day_br
         f"  MONTHLY BACKTEST -- {month_key}",
         f"  Market Condition:      {market_type}",
         f"{'=' * 60}",
+    ]
+
+    if selected_coins:
+        lines.append(f"  Dynamic Universe ({len(selected_coins)} Coins Selected for {month_key}):")
+        lines.append(f"    {', '.join(selected_coins)}\n")
+
+    lines.extend([
         f"  Total Trades:          {m['total_trades']}",
         f"  Wins:                  {m['wins']}",
         f"  Losses:                {m['losses']}",
@@ -82,7 +89,7 @@ def render_month_section(month_key: str, market_type: str, metrics: dict, day_br
         f"  Max Drawdown:          {m['max_drawdown_r']:.2f} R",
         f"  Max Consec. Wins:      {m['max_consec_wins']}",
         f"  Max Consec. Losses:    {m['max_consec_losses']}",
-    ]
+    ])
 
     if m["total_trades"] == 0:
         lines.append("\n  Is month mein koi qualified zone nahi mila (Market was quiet / Bearish).")
@@ -105,6 +112,28 @@ def render_month_section(month_key: str, market_type: str, metrics: dict, day_br
         if loss_days:
             worst_days_str = ", ".join([f"{day} ({d['pnl_r']:+.2f}R, {d['losses']}L)" for day, d in loss_days[:2]])
             lines.append(f"  Worst Loss Day(s):     {worst_days_str}")
+
+        # Deep Failure & Diagnostic Analysis for this month
+        lines.append("\n  --- ALL TRADES COMPLETE DIAGNOSTIC LEDGER ---")
+        for idx, z in enumerate(sorted(zones, key=lambda x: str(x.get("created_at", ""))), 1):
+            st = z.get("status", "PENDING")
+            st_icon = "✅ WIN" if st == "WIN" else ("❌ LOSS" if st == "LOSS" else ("↔ BREAKEVEN" if st == "BREAKEVEN" else ("⏰ EXPIRED" if st == "EXPIRED" else "⏳ PENDING")))
+            touch_str = str(z.get("touched_at", "N/A"))[:16] if z.get("touched_at") else "Not Touched"
+            res_str = str(z.get("resolved_at", "N/A"))[:16] if z.get("resolved_at") else "Unresolved"
+            diag_str = z.get("diagnosis") or z.get("post_sl_details") or "No diagnostic details."
+
+            lines.append(f"\n  [#{idx:02d}] {z['coin']} [{z['timeframe']}] -- {st_icon}")
+            lines.append(f"    • Zone Level     : {z.get('level_name', '78.6% OTE')}")
+            lines.append(f"    • Created At     : {str(z.get('created_at', ''))[:16]} UTC")
+            lines.append(f"    • Entry Price    : {z['entry_price']:.4f}")
+            lines.append(f"    • Stop Loss (ATR): {z['stop_price']:.4f}")
+            lines.append(f"    • Take Profit    : {z['target_price']:.4f}")
+            lines.append(f"    • Risk:Reward    : 1:{z.get('actual_rr', 0):.2f}")
+            lines.append(f"    • Confluence     : {z.get('score', 0)}/100")
+            lines.append(f"    • Swing Structure: {z.get('swing_low', 0):.4f} -> {z.get('swing_high', 0):.4f}")
+            lines.append(f"    • Touched At     : {touch_str}")
+            lines.append(f"    • Resolved At    : {res_str}")
+            lines.append(f"    • Diagnosis      : {diag_str}")
 
     lines.append("\n  --- Day-by-Day Detailed Breakdown ---")
     lines.append(render_day_table(day_breakdown))
@@ -190,7 +219,14 @@ def write_full_report(output_dir: str, overall_metrics: dict, monthly_results: l
         render_overall_summary(overall_metrics, monthly_metrics, all_zones, coin_universe, timeframes, start_dt, end_dt),
     ]
     for r in monthly_results:
-        lines.append(render_month_section(r["month_key"], r["market_type"], r["metrics"], r["day_breakdown"], r["zones"]))
+        lines.append(render_month_section(
+            r["month_key"],
+            r["market_type"],
+            r["metrics"],
+            r["day_breakdown"],
+            r["zones"],
+            selected_coins=r.get("selected_coins"),
+        ))
 
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
@@ -207,12 +243,12 @@ def write_zones_csv(output_dir: str, all_zones: list) -> str:
     fieldnames = [
         "coin", "timeframe", "level_name", "created_at", "entry_price", "stop_price",
         "target_price", "swing_low", "swing_high", "score", "actual_rr",
-        "status", "touched_at", "resolved_at",
+        "status", "touched_at", "resolved_at", "diagnosis", "post_sl_behavior", "post_sl_details",
     ]
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
-        for z in sorted(all_zones, key=lambda x: x["created_at"]):
+        for z in sorted(all_zones, key=lambda x: str(x.get("created_at", ""))):
             writer.writerow(z)
 
     logger.info(f"Zones CSV saved: {path}")
