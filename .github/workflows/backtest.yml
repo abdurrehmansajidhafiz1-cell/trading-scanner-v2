@@ -1,4 +1,4 @@
-name: Backtest -- January 2025 (Manual Run)
+name: Backtest -- Jan & Feb 2025 (Manual Run)
 
 on:
   workflow_dispatch:
@@ -33,7 +33,7 @@ jobs:
       - name: Run offline tests (sanity check)
         run: python test_offline.py
 
-      - name: Run Realistic Backtest -- January 2025
+      - name: Run Realistic Backtest -- Jan & Feb 2025
         env:
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
@@ -48,10 +48,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: backtest-jan2025-report
+          name: backtest-jan-feb-2025-report
           path: |
-            output/backtest_report_*.txt
-            output/jan2025_realistic_zones.csv
+            output/backtest_report*.txt
+            output/jan_feb_2025_realistic_zones.csv
+            output/backtest_zones.csv
             output/realistic_backtest.log
           retention-days: 30
 

@@ -111,8 +111,15 @@ def init_db():
         # Safe migration if table exists without new columns
         for col_def in [
             ("scan_log", "coin_list TEXT"),
+            ("zones", "entry_1 REAL"),
+            ("zones", "entry_2 REAL"),
+            ("zones", "tp1_price REAL"),
+            ("zones", "tier1_filled INTEGER DEFAULT 0"),
+            ("zones", "tier2_filled INTEGER DEFAULT 0"),
+            ("zones", "partial_tp_hit INTEGER DEFAULT 0"),
             ("zones", "post_sl_behavior TEXT"),
             ("zones", "post_sl_details TEXT"),
+            ("zones", "diagnosis TEXT"),
         ]:
             try:
                 cur.execute(f"ALTER TABLE {col_def[0]} ADD COLUMN {col_def[1]};")
@@ -167,16 +174,17 @@ def set_swing_state(coin, timeframe, swing_high, swing_high_time, swing_low, swi
 # ---------------- zones helpers ----------------
 
 def insert_zone(coin, timeframe, level_name, entry_price, stop_price, target_price,
-                 swing_low, swing_high, score, actual_rr, pivot_len, created_at, score_breakdown):
+                 swing_low, swing_high, score, actual_rr, pivot_len, created_at, score_breakdown,
+                 entry_1=None, entry_2=None, tp1_price=None):
     with db_cursor() as cur:
         cur.execute("""
             INSERT INTO zones (coin, timeframe, level_name, entry_price, stop_price, target_price,
                                 swing_low, swing_high, score, actual_rr, pivot_len, created_at,
-                                status, score_breakdown)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+                                status, score_breakdown, entry_1, entry_2, tp1_price)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)
         """, (coin, timeframe, level_name, entry_price, stop_price, target_price,
               swing_low, swing_high, score, actual_rr, pivot_len, created_at,
-              json.dumps(score_breakdown)))
+              json.dumps(score_breakdown), entry_1, entry_2, tp1_price))
         return cur.lastrowid
 
 

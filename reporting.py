@@ -96,9 +96,17 @@ def _cumulative_all_time_ledger_section() -> str:
         lines.append(f"\n  [#{idx:>02}] {z['coin']} [{z['timeframe']}] — {status}")
         lines.append(f"    Zone level: {z.get('level_name', '78.6% OTE')}")
         lines.append(f"    Structure created: {created_str}")
-        lines.append(f"    Entry Price: {_fmt_num(z.get('entry_price'))}")
-        lines.append(f"    Stop Loss (ATR): {_fmt_num(z.get('stop_price'))}")
-        lines.append(f"    Take Profit: {_fmt_num(z.get('target_price'))}")
+        if z.get("entry_1") and z.get("entry_2"):
+            lines.append(f"    Tier 1 Entry (61.8% Fib): {_fmt_num(z.get('entry_1'))} (50% Allocation)")
+            lines.append(f"    Tier 2 Entry (78.6% OTE): {_fmt_num(z.get('entry_2'))} (50% Allocation)")
+        else:
+            lines.append(f"    Entry Price: {_fmt_num(z.get('entry_price'))}")
+        lines.append(f"    Stop Loss (Buffer): {_fmt_num(z.get('stop_price'))}")
+        if z.get("tp1_price"):
+            lines.append(f"    Target 1 (TP1 - 50%): {_fmt_num(z.get('tp1_price'))} (Lock 50% Profit + SL to BE)")
+            lines.append(f"    Target 2 (TP2 - 100%): {_fmt_num(z.get('target_price'))} (Final Target)")
+        else:
+            lines.append(f"    Take Profit: {_fmt_num(z.get('target_price'))}")
         lines.append(f"    Risk:Reward Ratio: 1:{_fmt_num(z.get('actual_rr'), 2)}")
         lines.append(f"    Confluence Score: {z.get('score', 0)}/100 ({breakdown})")
         lines.append(f"    Swing Structure: {_fmt_num(z.get('swing_low'))} -> {_fmt_num(z.get('swing_high'))}")
@@ -217,9 +225,17 @@ def generate_report(period_label: str, start_dt: datetime, end_dt: datetime, inc
             lines.append(f"\n  {z['coin']} [{z['timeframe']}] — {z['status']}")
             lines.append(f"    Zone level: {z['level_name']}")
             lines.append(f"    Structure created: {created_str}")
-            lines.append(f"    Entry Price: {_fmt_num(z['entry_price'])}")
-            lines.append(f"    Stop Loss (ATR): {_fmt_num(z['stop_price'])}")
-            lines.append(f"    Take Profit: {_fmt_num(z['target_price'])}")
+            if z.get("entry_1") and z.get("entry_2"):
+                lines.append(f"    Tier 1 Entry (61.8% Fib): {_fmt_num(z.get('entry_1'))} (50% Allocation)")
+                lines.append(f"    Tier 2 Entry (78.6% OTE): {_fmt_num(z.get('entry_2'))} (50% Allocation)")
+            else:
+                lines.append(f"    Entry Price: {_fmt_num(z['entry_price'])}")
+            lines.append(f"    Stop Loss (Buffer): {_fmt_num(z['stop_price'])}")
+            if z.get("tp1_price"):
+                lines.append(f"    Target 1 (TP1 - 50%): {_fmt_num(z.get('tp1_price'))} (Lock 50% Profit + SL to BE)")
+                lines.append(f"    Target 2 (TP2 - 100%): {_fmt_num(z.get('target_price'))} (Final Target)")
+            else:
+                lines.append(f"    Take Profit: {_fmt_num(z['target_price'])}")
             lines.append(f"    Risk:Reward Ratio: 1:{_fmt_num(z['actual_rr'], 2)}")
             lines.append(f"    Confluence Score: {z['score']}/100 ({breakdown})")
             lines.append(f"    Swing Structure: {_fmt_num(z['swing_low'])} -> {_fmt_num(z['swing_high'])}")

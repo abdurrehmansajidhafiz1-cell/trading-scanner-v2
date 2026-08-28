@@ -47,10 +47,10 @@ from local_backtester import (
 from local_reporter import write_full_report, write_zones_csv
 
 # ============================================================
-# CONFIGURATION -- January 2025
+# CONFIGURATION -- January & February 2025
 # ============================================================
 BACKTEST_START           = datetime(2025, 1, 2,  0, 0, 0, tzinfo=timezone.utc)
-BACKTEST_END             = datetime(2025, 1, 31, 23, 59, 59, tzinfo=timezone.utc)
+BACKTEST_END             = datetime(2025, 2, 28, 23, 59, 59, tzinfo=timezone.utc)
 WARMUP_DAYS              = 90
 FETCH_START              = BACKTEST_START - timedelta(days=WARMUP_DAYS)
 OUTPUT_DIR               = os.path.join(PARENT_DIR, "output")
@@ -266,26 +266,36 @@ def main():
     final_zones = apply_portfolio_protection(filtered_zones)
     logger.info(f"  Final zones after protection: {len(final_zones)}")
 
-    month_key   = "2025-01"
-    market_type = "UNKNOWN"
-    if df_btc_daily is not None and len(df_btc_daily) > 0:
-        btc_jan = df_btc_daily[
-            (df_btc_daily["timestamp"] >= start_ts_pd) &
-            (df_btc_daily["timestamp"] <= end_ts_pd)
+    months = [
+        ("2025-01", pd.Timestamp("2025-01-02", tz="UTC"), pd.Timestamp("2025-01-31 23:59:59", tz="UTC")),
+        ("2025-02", pd.Timestamp("2025-02-01", tz="UTC"), pd.Timestamp("2025-02-28 23:59:59", tz="UTC")),
+    ]
+    monthly_metrics = {}
+    monthly_results = []
+
+    for m_key, m_start, m_end in months:
+        m_zones = [
+            z for z in final_zones
+            if m_start <= pd.Timestamp(z.get("created_at", "")) <= m_end
         ]
-        market_type = _classify_month_market(btc_jan)
+        m_market = "UNKNOWN"
+        if df_btc_daily is not None and len(df_btc_daily) > 0:
+            btc_m = df_btc_daily[(df_btc_daily["timestamp"] >= m_start) & (df_btc_daily["timestamp"] <= m_end)]
+            m_market = _classify_month_market(btc_m)
+
+        m_met = compute_metrics(m_zones)
+        m_db = compute_day_breakdown(m_zones)
+        monthly_metrics[m_key] = m_met
+        monthly_results.append({
+            "month_key":      m_key,
+            "market_type":    m_market,
+            "selected_coins": CANDIDATE_COINS,
+            "metrics":        m_met,
+            "day_breakdown":  m_db,
+            "zones":          m_zones,
+        })
 
     overall_metrics = compute_metrics(final_zones)
-    day_breakdown   = compute_day_breakdown(final_zones)
-    monthly_metrics = {month_key: overall_metrics}
-    monthly_results = [{
-        "month_key":      month_key,
-        "market_type":    market_type,
-        "selected_coins": CANDIDATE_COINS,
-        "metrics":        overall_metrics,
-        "day_breakdown":  day_breakdown,
-        "zones":          final_zones,
-    }]
 
     # ── Phase 6: Report & CSV ─────────────────────────────────────────────────
     logger.info("[PHASE 6] Writing report and CSV...")
@@ -297,16 +307,16 @@ def main():
     )
     write_zones_csv(OUTPUT_DIR, final_zones)
     generic_csv = os.path.join(OUTPUT_DIR, "backtest_zones.csv")
-    jan_csv     = os.path.join(OUTPUT_DIR, "jan2025_realistic_zones.csv")
+    dual_csv    = os.path.join(OUTPUT_DIR, "jan_feb_2025_realistic_zones.csv")
     if os.path.exists(generic_csv):
-        os.replace(generic_csv, jan_csv)
+        import shutil
+        shutil.copyfile(generic_csv, dual_csv)
 
     pf     = overall_metrics["profit_factor"]
     pf_str = f"{pf:.2f}" if pf != float("inf") else "inf"
 
     logger.info(f"\n{'=' * 65}")
-    logger.info("  REALISTIC BACKTEST COMPLETE -- January 2025")
-    logger.info(f"  Market Regime   : {market_type}")
+    logger.info("  REALISTIC BACKTEST COMPLETE -- Jan & Feb 2025")
     logger.info(f"  Total Zones     : {overall_metrics['total_trades']}")
     logger.info(f"  Wins            : {overall_metrics['wins']}")
     logger.info(f"  Losses          : {overall_metrics['losses']}")
@@ -318,7 +328,7 @@ def main():
     logger.info(f"  Profit Factor   : {pf_str}")
     logger.info(f"  Max Drawdown    : {overall_metrics['max_drawdown_r']:.2f} R")
     logger.info(f"  Report : {report_path}")
-    logger.info(f"  CSV    : {jan_csv}")
+    logger.info(f"  CSV    : {dual_csv}")
     logger.info("=" * 65)
 
     # ── Phase 7: Email results ────────────────────────────────────────────────
@@ -328,19 +338,18 @@ def main():
         with open(report_path, "r", encoding="utf-8") as f:
             report_body = f.read()
         subject = (
-            f"[Backtest] Jan 2025 Complete | "
+            f"[Backtest] Jan & Feb 2025 Complete | "
             f"WR: {overall_metrics['win_rate_pct']:.1f}% | "
             f"P&L: {overall_metrics['net_pnl_r']:+.2f}R | "
-            f"PF: {pf_str} | Regime: {market_type}"
+            f"PF: {pf_str}"
         )
         sep = "-" * 65  # "=" Gmail mein quoted-printable issue karta hai, isliye "-" use karo
         header = "\n".join([
             sep,
-            "  BACKTEST COMPLETE -- January 2025",
-            "  Hourly Dynamic Coin Selection (Live System Logic Simulated)",
+            "  BACKTEST COMPLETE -- January & February 2025",
+            "  Dual-Tier Entry (61.8%+78.6%) | Structural Buffer SL | Partial TP1 (50%)",
             sep,
             "",
-            f"  Market Regime   : {market_type}",
             f"  Total Zones     : {overall_metrics['total_trades']}",
             f"  Wins            : {overall_metrics['wins']}",
             f"  Losses          : {overall_metrics['losses']}",
@@ -355,7 +364,6 @@ def main():
             sep,
             "  FULL DETAILED REPORT BELOW",
             sep,
-            "",
         ]) + "\n"
         success = send_email(subject, header + report_body)
         if success:

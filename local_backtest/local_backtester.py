@@ -64,107 +64,148 @@ def _classify_month_market(df_daily: pd.DataFrame) -> str:
 
 def _resolve_zone(zone: dict, df_after_entry: pd.DataFrame, tf_cfg: dict) -> dict:
     """
-    Zone ko price action ke against test karta hai (WIN/LOSS/EXPIRED/TIMEOUT/BREAKEVEN).
-    Reversal confirmation filter enabled: price zone touch karne ke baad
-    wait karega green closed candle close hone ka entry trigger ke liye.
+    Zone ko Dual-Tier Entry (61.8% + 78.6%) aur Partial TP1 + Breakeven ke against test karta hai.
+    1. Tier 1 (61.8%): 50% position fill.
+    2. Tier 2 (78.6%): 50% position fill (dono fill hon to avg price ~70.2% Fib).
+    3. Partial TP1 (50% distance): 50% profit booked + SL shifts to Entry (Risk-Free).
+    4. TP2 (100% Target): Final target execution.
     """
     import config
-    touched = False
-    touched_at = None
-    be_moved = False
+    swing_low = zone["swing_low"]
+    swing_high = zone["swing_high"]
+    diff = swing_high - swing_low
+
+    entry_1 = zone.get("entry_1") or (swing_high - 0.618 * diff)
+    entry_2 = zone.get("entry_2") or (swing_high - 0.786 * diff)
+    tp1 = zone.get("tp1_price") or (swing_low + 0.50 * diff)
+    tp2 = zone["target_price"]
+
+    zone["entry_1"] = entry_1
+    zone["entry_2"] = entry_2
+    zone["tp1_price"] = tp1
+
     current_stop = zone["stop_price"]
     age_limit = tf_cfg["max_structure_age_bars"] * 3
-    be_ratio = getattr(config, "BREAKEVEN_TRIGGER_RATIO", 0.70)
-    be_trigger = zone["entry_price"] + (zone["target_price"] - zone["entry_price"]) * be_ratio
+    tol = tf_cfg["zone_tolerance_pct"] / 100
 
-    has_touched_zone = False
-    max_trade_high = zone["entry_price"]
+    tier1_filled = False
+    tier2_filled = False
+    active_entry = None
+    touched_at = None
+    tp1_hit = False
+
     min_before_touch = float("inf")
     max_before_touch = float("-inf")
+    max_trade_high = float("-inf")
 
     for idx, (_, candle) in enumerate(df_after_entry.iterrows()):
-        if not touched:
-            touch_threshold = zone["entry_price"] * (1 + tf_cfg["zone_tolerance_pct"] / 100)
-            min_before_touch = min(min_before_touch, candle["low"])
-            max_before_touch = max(max_before_touch, candle["high"])
-            
-            # Check if price has entered/touched the zone
-            if candle["low"] <= touch_threshold:
-                has_touched_zone = True
+        candle_low = candle["low"]
+        candle_high = candle["high"]
+        candle_open = candle["open"]
+        candle_close = candle["close"]
+        candle_ts = str(candle["timestamp"])
 
-            if has_touched_zone:
-                # If price crashes below stop loss BEFORE any bullish confirmation, the setup is invalidated
-                if candle["low"] <= current_stop:
-                    zone["status"] = "EXPIRED"  # Invalidated before entry
-                    zone["resolved_at"] = str(candle["timestamp"])
-                    zone["diagnosis"] = "Invalidated: Price crashed below Stop Loss before bullish green candle confirmation."
+        is_green = candle_close > candle_open
+
+        # --- Phase A: Entry Evaluation (Dual-Tier) ---
+        if not tier1_filled:
+            min_before_touch = min(min_before_touch, candle_low)
+            max_before_touch = max(max_before_touch, candle_high)
+
+            # Check Tier 1 Touch (61.8%)
+            if candle_low <= entry_1 * (1 + tol):
+                if candle_low <= current_stop:
+                    # Invalidation before confirmation
+                    zone["status"] = "EXPIRED"
+                    zone["resolved_at"] = candle_ts
+                    zone["diagnosis"] = "Invalidated: Price crashed below Stop Loss before bullish green confirmation."
                     return zone
 
-                # Confirmation: green candle close inside/near the zone
-                if candle["close"] > candle["open"]:
-                    touched = True
-                    touched_at = str(candle["timestamp"])
+                if is_green:
+                    tier1_filled = True
+                    active_entry = entry_1
+                    touched_at = candle_ts
                     zone["touched_at"] = touched_at
-                    max_trade_high = candle["high"]
+                    max_trade_high = candle_high
 
-        if touched:
-            max_trade_high = max(max_trade_high, candle["high"])
+        # If already Tier 1 filled, check if Tier 2 (78.6%) also fills on this candle
+        if tier1_filled and not tier2_filled:
+            if candle_low <= entry_2 * (1 + tol):
+                tier2_filled = True
+                active_entry = (entry_1 + entry_2) / 2.0  # Average price of both tiers
 
-            # Breakeven SL activation: agar price 55% target reach kare to SL entry price pe shift
-            if getattr(config, "ENABLE_BREAKEVEN_SL", False) and not be_moved:
-                if candle["high"] >= be_trigger:
-                    be_moved = True
-                    current_stop = zone["entry_price"]
+        # --- Phase B: In-Trade Management (TP1, TP2, Breakeven, SL) ---
+        if tier1_filled:
+            max_trade_high = max(max_trade_high, candle_high)
 
-            if candle["high"] >= zone["target_price"]:
+            # 1. Partial TP1 Trigger (50% target distance hit)
+            if not tp1_hit and candle_high >= tp1:
+                tp1_hit = True
+                current_stop = active_entry  # Breakeven SL active
+
+            # 2. Final TP2 Trigger (Full Target Hit)
+            if candle_high >= tp2:
                 zone["status"] = "WIN"
-                zone["resolved_at"] = str(candle["timestamp"])
-                zone["diagnosis"] = f"Clean OTE Bounce: Reached Target {zone['target_price']:.4f} (+{zone.get('actual_rr', 0):.2f}R net profit)."
+                zone["resolved_at"] = candle_ts
+                allocation_pct = 100 if tier2_filled else 50
+                risk_amt = active_entry - zone["stop_price"]
+                reward_amt = tp2 - active_entry
+                tier_rr = (reward_amt / risk_amt) if risk_amt > 0 else zone.get("actual_rr", 1.5)
+                final_rr = tier_rr if tier2_filled else (tier_rr * 0.5)
+                zone["actual_rr"] = round(final_rr, 2)
+                zone["diagnosis"] = (
+                    f"Clean Dual-Tier Win ({allocation_pct}% Size): Reached Target {tp2:.4f} "
+                    f"(+{final_rr:.2f}R Net Profit | Avg Entry: {active_entry:.4f})."
+                )
                 return zone
-            elif candle["low"] <= current_stop:
-                if be_moved:
+
+            # 3. Stop Loss / Breakeven Trigger
+            if candle_low <= current_stop:
+                if tp1_hit:
                     zone["status"] = "BREAKEVEN"
-                    zone["resolved_at"] = str(candle["timestamp"])
-                    tp_dist = zone["target_price"] - zone["entry_price"]
-                    pct_tp = round(((max_trade_high - zone["entry_price"]) / tp_dist * 100), 1) if tp_dist > 0 else 0
+                    zone["resolved_at"] = candle_ts
+                    risk_amt = active_entry - zone["stop_price"]
+                    reward_tp1 = tp1 - active_entry
+                    tp1_r = (reward_tp1 / risk_amt * 0.5) if risk_amt > 0 else 0.5
+                    zone["actual_rr"] = round(tp1_r, 2)
                     zone["diagnosis"] = (
-                        f"Breakeven Retrace: Price reached {pct_tp}% of Target (Max High: {max_trade_high:.4f}), "
-                        f"activated BE SL, then retraced back to Entry ({zone['entry_price']:.4f})."
+                        f"Partial Profit + Breakeven (+{tp1_r:.2f}R): TP1 hit at {tp1:.4f} (50% profit booked), "
+                        f"remaining 50% closed at Entry Breakeven ({active_entry:.4f})."
                     )
                     return zone
                 else:
                     zone["status"] = "LOSS"
-                    zone["resolved_at"] = str(candle["timestamp"])
-                    # Post-SL Price Action Diagnosis (Fakeout vs Breakdown)
+                    zone["resolved_at"] = candle_ts
+                    loss_r = -1.0 if tier2_filled else -0.5  # Only 50% loss if only Tier 1 filled
+                    zone["actual_rr"] = loss_r
                     try:
                         from failure_analyzer import diagnose_trade_outcome
                         candles_after_sl = df_after_entry.iloc[idx + 1: idx + 25]
                         diag = diagnose_trade_outcome(zone, candles_after_sl)
                         zone["post_sl_behavior"] = diag.get("post_sl_behavior")
                         zone["post_sl_details"] = diag.get("post_sl_details")
-                        zone["diagnosis"] = diag.get("post_sl_details") or "Price did not recover after SL."
+                        zone["diagnosis"] = diag.get("post_sl_details") or "Price crashed below Stop Loss."
                     except Exception:
-                        zone["diagnosis"] = "SL hit: price dumped below stop loss."
+                        zone["diagnosis"] = "SL hit: price dumped below structural stop loss."
                     return zone
 
+        # --- Phase C: Age Limit Check ---
         if idx > age_limit:
-            if not touched:
+            if not tier1_filled:
                 zone["status"] = "EXPIRED"
-                zone["resolved_at"] = str(candle["timestamp"])
-                fib_618 = zone["swing_high"] - (zone["swing_high"] - zone["swing_low"]) * 0.618
-                if min_before_touch <= fib_618:
+                zone["resolved_at"] = candle_ts
+                if min_before_touch <= entry_1:
                     zone["diagnosis"] = (
-                        f"Missed Dip (Shallow Pullback): Price bounced from 61.8% Fib ({fib_618:.4f}, Lowest: {min_before_touch:.4f}) "
-                        f"without reaching deep 78.6% OTE Entry ({zone['entry_price']:.4f})."
+                        f"Missed Dip (Shallow Pullback): Price dipped to {min_before_touch:.4f} but lacked green confirmation."
                     )
                 else:
-                    zone["diagnosis"] = f"Impulse Rally: Price moved up without significant pullback (Lowest dip: {min_before_touch:.4f})."
-                if max_before_touch >= zone["target_price"]:
-                    zone["diagnosis"] += f" Target ({zone['target_price']:.4f}) was hit during the upward move."
+                    zone["diagnosis"] = f"Impulse Rally: Price moved up without pullback to 61.8% Fib (Lowest: {min_before_touch:.4f})."
+                if max_before_touch >= tp2:
+                    zone["diagnosis"] += f" Target ({tp2:.4f}) was hit during impulse."
             else:
                 zone["status"] = "TIMEOUT"
-                zone["resolved_at"] = str(candle["timestamp"])
-                zone["diagnosis"] = f"Timeout: Price stayed within range for {age_limit} bars without hitting TP or SL."
+                zone["resolved_at"] = candle_ts
+                zone["diagnosis"] = f"Timeout: Position stayed active for {age_limit} bars without hitting TP or SL."
             return zone
 
     zone["status"] = "PENDING"

@@ -1,5 +1,5 @@
 //@version=6
-indicator("Trading Scanner — Production Intraday Fibonacci Strategy [30-Day Edition]", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_tables_count=10)
+indicator("Trading Scanner — Production Intraday Fibonacci Strategy [30-Day Edition]", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
 
 // ============================================================
 // 1. STRATEGY INPUT PARAMETERS (Synced with Python Config)
@@ -72,15 +72,22 @@ fib500 = isUpLeg ? (lastPivotHigh - 0.500 * swingDiff) : na
 fib618 = isUpLeg ? (lastPivotHigh - 0.618 * swingDiff) : na
 fib786 = isUpLeg ? (lastPivotHigh - 0.786 * swingDiff) : na
 
-// Entry, Stop Loss, Breakeven & Take Profit Targets
-entryPrice  = fib786 // Primary High-Conviction OTE level
-stopPrice   = isUpLeg ? (lastPivotLow - (atrMult * atrVal)) : na
-tp1Price    = isUpLeg ? (lastPivotLow + tp1Factor * swingDiff) : na
-tp2Price    = isUpLeg ? (lastPivotLow + tp2Ext * swingDiff) : na
-beTrigger   = isUpLeg ? (entryPrice + (tp1Price - entryPrice) * beRatio) : na
+// Entry, Stop Loss, Breakeven & Take Profit Targets (Dual-Tier System)
+entry1Price = fib618 // Tier 1 Entry (61.8% Golden Fib - 50% Size)
+entry2Price = fib786 // Tier 2 Entry (78.6% Deep OTE - 50% Size)
 
-riskAmount   = isUpLeg ? (entryPrice - stopPrice) : 0.0
-rewardAmount = isUpLeg ? (tp1Price - entryPrice) : 0.0
+// Structural Buffer SL: 0.5% below Swing Low or 1.5x ATR below Swing Low
+stopBufferPrice = isUpLeg ? (lastPivotLow * 0.995) : na
+stopAtrPrice    = isUpLeg ? (lastPivotLow - (atrMult * atrVal)) : na
+stopPrice       = math.min(stopBufferPrice, stopAtrPrice)
+
+tp1Price    = isUpLeg ? (lastPivotLow + 0.50 * swingDiff) : na       // TP1 (50% Target - Lock 50% Profit & Move SL to BE)
+tp2Price    = isUpLeg ? (lastPivotLow + tp1Factor * swingDiff) : na  // TP2 (95% Swing High - Final Target)
+tp3Price    = isUpLeg ? (lastPivotLow + tp2Ext * swingDiff) : na     // TP3 (1.618 Fib Extension - Runner)
+beTrigger   = tp1Price // BE automatically activates on TP1
+
+riskAmount   = isUpLeg ? (entry2Price - stopPrice) : 0.0
+rewardAmount = isUpLeg ? (tp2Price - entry2Price) : 0.0
 actualRR     = riskAmount > 0 ? (rewardAmount / riskAmount) : 0.0
 
 // ============================================================
@@ -121,7 +128,6 @@ if isUpLeg and swingDiff > 0
 
 // Entry Trigger & Confirmation
 isGreenCandle = close > open
-zoneTouch     = low <= (entryPrice * 1.003)
 entryTrigger  = isUpLeg and (score >= minScore) and (actualRR >= minRR) and (not requireGreenClose or isGreenCandle)
 
 bool qualifies = isUpLeg and (score >= minScore) and (actualRR >= minRR)
@@ -129,33 +135,36 @@ bool qualifies = isUpLeg and (score >= minScore) and (actualRR >= minRR)
 // ============================================================
 // 4. VISUAL CHART OVERLAYS & DASHBOARD TABLE
 // ============================================================
-var box   oteBox   = na
-var line  lineE    = na
-var line  lineSL   = na
-var line  lineBE   = na
-var line  lineTP1  = na
-var line  lineTP2  = na
-var label badgeL   = na
+var box   oteBox    = na
+var line  lineE1    = na
+var line  lineE2    = na
+var line  lineSL    = na
+var line  lineTP1   = na
+var line  lineTP2   = na
+var line  lineTP3   = na
+var label badgeL    = na
 
 if qualifies and barstate.islast
     box.delete(oteBox)
-    line.delete(lineE)
+    line.delete(lineE1)
+    line.delete(lineE2)
     line.delete(lineSL)
-    line.delete(lineBE)
     line.delete(lineTP1)
     line.delete(lineTP2)
+    line.delete(lineTP3)
     label.delete(badgeL)
 
     oteBox  := box.new(left=lastLowBar, top=fib618, right=bar_index + 20, bottom=fib786, bgcolor=colorOteBox, border_color=color.blue, border_style=line.style_dotted)
-    lineE   := line.new(x1=lastHighBar, y1=entryPrice, x2=bar_index + 20, y2=entryPrice, color=colorEntry, width=2, style=line.style_solid)
-    lineSL  := line.new(x1=lastHighBar, y1=stopPrice,  x2=bar_index + 20, y2=stopPrice,  color=colorSL,    width=2, style=line.style_dashed)
-    lineBE  := line.new(x1=lastHighBar, y1=beTrigger,  x2=bar_index + 20, y2=beTrigger,  color=colorBE,    width=1, style=line.style_dotted)
-    lineTP1 := line.new(x1=lastHighBar, y1=tp1Price,   x2=bar_index + 20, y2=tp1Price,   color=colorTP1,   width=2, style=line.style_solid)
-    lineTP2 := line.new(x1=lastHighBar, y1=tp2Price,   x2=bar_index + 20, y2=tp2Price,   color=colorTP2,   width=2, style=line.style_dotted)
+    lineE1  := line.new(x1=lastHighBar, y1=entry1Price, x2=bar_index + 20, y2=entry1Price, color=color.new(#2962FF, 0), width=2, style=line.style_dashed)
+    lineE2  := line.new(x1=lastHighBar, y1=entry2Price, x2=bar_index + 20, y2=entry2Price, color=color.new(#00E676, 0), width=2, style=line.style_solid)
+    lineSL  := line.new(x1=lastHighBar, y1=stopPrice,   x2=bar_index + 20, y2=stopPrice,   color=colorSL,    width=2, style=line.style_solid)
+    lineTP1 := line.new(x1=lastHighBar, y1=tp1Price,    x2=bar_index + 20, y2=tp1Price,    color=colorBE,    width=2, style=line.style_dotted)
+    lineTP2 := line.new(x1=lastHighBar, y1=tp2Price,    x2=bar_index + 20, y2=tp2Price,    color=colorTP1,   width=2, style=line.style_solid)
+    lineTP3 := line.new(x1=lastHighBar, y1=tp3Price,    x2=bar_index + 20, y2=tp3Price,    color=colorTP2,   width=1, style=line.style_dotted)
 
-    string badgeText = "🟢 OTE PRODUCTION SETUP\nScore: " + str.tostring(score) + "/100\nRisk:Reward: 1:" + str.tostring(actualRR, "#.##") + "\nEntry: " + str.tostring(entryPrice, "#.####") + "\nStop Loss: " + str.tostring(stopPrice, "#.####") + "\n55% BE Shift: " + str.tostring(beTrigger, "#.####") + "\nTP1 Target: " + str.tostring(tp1Price, "#.####") + "\nTP2 Extension: " + str.tostring(tp2Price, "#.####")
+    string badgeText = "🟢 DUAL-TIER OTE SETUP\nScore: " + str.tostring(score) + "/100 | R:R: 1:" + str.tostring(actualRR, "#.##") + "\nEntry 1 (61.8%): " + str.tostring(entry1Price, "#.####") + " [50% Size]\nEntry 2 (78.6%): " + str.tostring(entry2Price, "#.####") + " [50% Size]\nStop Loss (Buffer): " + str.tostring(stopPrice, "#.####") + "\nTP1 (50% Lock+BE): " + str.tostring(tp1Price, "#.####") + "\nTP2 (100% Final): " + str.tostring(tp2Price, "#.####") + "\nTP3 (Runner Ext): " + str.tostring(tp3Price, "#.####")
 
-    badgeL := label.new(x=bar_index + 2, y=tp1Price, text=badgeText, color=color.new(#0A192F, 10), textcolor=color.white, style=label.style_label_left, size=size.normal)
+    badgeL := label.new(x=bar_index + 2, y=tp2Price, text=badgeText, color=color.new(#0A192F, 10), textcolor=color.white, style=label.style_label_left, size=size.normal)
 
 // Pivot Labels
 if not na(ph)

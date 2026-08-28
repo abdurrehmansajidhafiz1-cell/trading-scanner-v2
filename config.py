@@ -71,14 +71,23 @@ PRIOR_LEVEL_TOLERANCE_PCT = 0.5
 # RISK-REWARD & EXECUTION MODEL
 # ============================================================
 MIN_RR = float(os.environ.get("MIN_RR", 1.3))  # Minimum 1:1.3 Risk-to-Reward
-STOP_LOSS_ATR_MULT = 1.2     # Volatility-based stop loss: 1.2x ATR buffer below Swing Low
+STOP_LOSS_ATR_MULT = 1.5     # Volatility-based stop loss: 1.5x ATR buffer
+STOP_LOSS_SWING_LOW_BUFFER_PCT = 0.5 # 0.5% structural buffer below Swing Low (Wick Sweep Protection)
 MIN_RANGE_PCT = 1.0          # Minimum swing range jo valid maana jaye
-TP1_SWING_HIGH_FACTOR = 0.95 # TP1 @ 95% of Swing High distance
-TP2_EXTENSION = 1.618        # TP2 @ 1.618 Fib Extension
+
+# Dual-Tier Entry Model (Split Limit Orders)
+DUAL_ENTRY_TIER1_RATIO = 0.618  # Tier 1 Entry (61.8% Golden Fib - 50% Size)
+DUAL_ENTRY_TIER2_RATIO = 0.786  # Tier 2 Entry (78.6% Deep OTE - 50% Size)
+
+# Dual Take-Profit & Breakeven Mechanism
+PARTIAL_TP1_RATIO = 0.50        # TP1 @ 50% of Target distance (Lock 50% Profit)
+PARTIAL_TP1_CLOSE_PCT = 0.50    # Close 50% position on TP1 hit
+TP1_SWING_HIGH_FACTOR = 0.95    # TP2 / Final Target @ 95% of Swing High distance
+TP2_EXTENSION = 1.618           # TP3 / Extended Target @ 1.618 Fib Extension
 
 # Breakeven Stop Loss Mechanism
 ENABLE_BREAKEVEN_SL = True
-BREAKEVEN_TRIGGER_RATIO = 0.55  # 55% target move hone par SL entry pe shift (loss prevention)
+BREAKEVEN_TRIGGER_RATIO = 0.50  # 50% target move (TP1) hone par SL entry pe shift (risk-free runner)
 
 # ============================================================
 # MANDATORY QUALITY FILTERS (Hard Filters — Score se alag)

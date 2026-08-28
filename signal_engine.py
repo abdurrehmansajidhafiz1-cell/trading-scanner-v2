@@ -32,9 +32,12 @@ class SignalResult:
     best_zone_price: float = None
     best_score: int = 0
     score_breakdown: dict = field(default_factory=dict)
+    entry_1: float = None  # 61.8% Tier 1 Entry
+    entry_2: float = None  # 78.6% Tier 2 Entry
     stop_price: float = None
-    target_price: float = None
-    tp2_price: float = None
+    tp1_price: float = None # 50% Partial TP
+    target_price: float = None # Final TP2 (95% Swing)
+    tp2_price: float = None # Extended Fib TP3
     actual_rr: float = None
     rr_ok: bool = False
     trend_ok: bool = False
@@ -276,11 +279,19 @@ def analyze(coin: str, timeframe: str, df: pd.DataFrame, df_daily: pd.DataFrame,
             return result
 
     # --- Fibonacci Candidate Evaluation (Multi-Level Selection) ---
-    stop_price = result.swing_low - (config.STOP_LOSS_ATR_MULT * atr_val)
+    # Structural Buffer SL: min of 0.5% below Swing Low OR 1.5x ATR below Swing Low
+    sl_atr_mult = getattr(config, "STOP_LOSS_ATR_MULT", 1.5)
+    sl_buffer_pct = getattr(config, "STOP_LOSS_SWING_LOW_BUFFER_PCT", 0.5) / 100
+    stop_price = min(result.swing_low * (1 - sl_buffer_pct), result.swing_low - (sl_atr_mult * atr_val))
+
     target_price = result.swing_low + (diff * config.TP1_SWING_HIGH_FACTOR)
+    tp1_price = result.swing_low + (diff * getattr(config, "PARTIAL_TP1_RATIO", 0.50))
     tp2_price = result.swing_low + (config.TP2_EXTENSION * diff)
 
+    result.entry_1 = result.swing_high - getattr(config, "DUAL_ENTRY_TIER1_RATIO", 0.618) * diff
+    result.entry_2 = result.swing_high - getattr(config, "DUAL_ENTRY_TIER2_RATIO", 0.786) * diff
     result.stop_price = stop_price
+    result.tp1_price = tp1_price
     result.target_price = target_price
     result.tp2_price = tp2_price
 
