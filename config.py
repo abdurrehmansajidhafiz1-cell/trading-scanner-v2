@@ -70,24 +70,15 @@ PRIOR_LEVEL_TOLERANCE_PCT = 0.5
 # ============================================================
 # RISK-REWARD & EXECUTION MODEL
 # ============================================================
-MIN_RR = float(os.environ.get("MIN_RR", 1.25))  # Minimum 1:1.25 Risk-to-Reward (Accommodates 1.75x ATR Safe SL)
-STOP_LOSS_ATR_MULT = 1.75      # Volatility-based safe stop loss: 1.75x ATR (Sweeps & fakeouts protection)
-STOP_LOSS_SWING_LOW_BUFFER_PCT = 0.8 # 0.8% structural buffer below Swing Low
-MIN_RANGE_PCT = 1.0           # Minimum swing range jo valid maana jaye
+MIN_RR = float(os.environ.get("MIN_RR", 1.3))  # Minimum 1:1.3 Risk-to-Reward
+STOP_LOSS_ATR_MULT = 1.2     # Volatility-based stop loss: 1.2x ATR buffer
+MIN_RANGE_PCT = 1.0          # Minimum swing range jo valid maana jaye
+TP1_SWING_HIGH_FACTOR = 0.95 # Primary Take Profit (TP1) @ 95% of Swing High distance
+TP2_EXTENSION = 1.618        # Extended Take Profit (TP2) @ 1.618 Fib Extension
 
-# Primary Entry Level: 78.6% Deep OTE Sniper Entry (100% Allocation for max asymmetric R:R)
-ENTRY_FIB_RATIO = 0.786
-TP1_SWING_HIGH_FACTOR = 0.95   # Primary Target @ 95% of Swing High
-TP2_EXTENSION = 1.272          # Extended Target @ 1.272 Fib Extension (for shallow 61.8% reversals)
-TP3_EXTENSION = 1.618          # Runner Target @ 1.618 Fib Extension
-
-# Dynamic Trailing Profit-Locking Mechanism (Never return to 0.00R Breakeven!)
-ENABLE_PROFIT_LOCK = True
-PROFIT_LOCK_STAGE1_TRIGGER = 0.60  # At 60% of Target move (~+1.0R gain)
-PROFIT_LOCK_STAGE1_LOCK    = 0.25  # Lock SL to +25% of Target move (+0.40R Guaranteed Cash Profit)
-PROFIT_LOCK_STAGE2_TRIGGER = 0.80  # At 80% of Target move (~+1.4R gain)
-PROFIT_LOCK_STAGE2_LOCK    = 0.50  # Lock SL to +50% of Target move (+0.80R Guaranteed Cash Profit)
+# Breakeven Stop Loss Mechanism
 ENABLE_BREAKEVEN_SL = True
+BREAKEVEN_TRIGGER_RATIO = 0.55  # 55% target move hone par SL entry pe shift (risk-free runner)
 
 # ============================================================
 # MANDATORY QUALITY FILTERS (Hard Filters — Score se alag)

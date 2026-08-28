@@ -64,35 +64,25 @@ def _classify_month_market(df_daily: pd.DataFrame) -> str:
 
 def _resolve_zone(zone: dict, df_after_entry: pd.DataFrame, tf_cfg: dict) -> dict:
     """
-    Zone resolution with:
-    1. Sniper OTE Entry (100% position size for maximum asymmetric R:R)
-    2. Wick-Sweep Protected Stop Loss (1.75x ATR + Structural buffer)
-    3. Dynamic Trailing Profit Lock:
-       - Stage 1 (60% Target hit): Lock SL to +25% of Target Distance (+0.40R to +0.55R Guaranteed Cash Profit)
-       - Stage 2 (80% Target hit): Lock SL to +50% of Target Distance (+0.80R to +1.10R Guaranteed Cash Profit)
-       - Target (100% Hit): Full WIN (+1.5R to +2.5R Net Profit)
+    Original Baseline Strategy Resolution:
+    1. Sniper OTE Entry @ 78.6% Fib (100% Position Size)
+    2. 1.2x ATR Stop Loss
+    3. Breakeven SL Shift @ 55% Target Distance (0.00R Breakeven)
+    4. Target @ 95% Swing High (+1.5R to +2.5R WIN)
     """
     import config
-    entry_price = zone["entry_price"]
-    target_price = zone["target_price"]
-    current_stop = zone["stop_price"]
-    dist = target_price - entry_price
-
-    lock_t1 = entry_price + (dist * getattr(config, "PROFIT_LOCK_STAGE1_TRIGGER", 0.60))
-    lock_p1 = entry_price + (dist * getattr(config, "PROFIT_LOCK_STAGE1_LOCK", 0.25))
-    lock_t2 = entry_price + (dist * getattr(config, "PROFIT_LOCK_STAGE2_TRIGGER", 0.80))
-    lock_p2 = entry_price + (dist * getattr(config, "PROFIT_LOCK_STAGE2_LOCK", 0.50))
-
-    age_limit = tf_cfg["max_structure_age_bars"] * 3
-    tol = tf_cfg["zone_tolerance_pct"] / 100
-
     touched = False
     touched_at = None
-    lock_stage = 0
+    be_moved = False
+    current_stop = zone["stop_price"]
+    age_limit = tf_cfg["max_structure_age_bars"] * 3
+    be_ratio = getattr(config, "BREAKEVEN_TRIGGER_RATIO", 0.55)
+    be_trigger = zone["entry_price"] + (zone["target_price"] - zone["entry_price"]) * be_ratio
 
+    has_touched_zone = False
+    max_trade_high = zone["entry_price"]
     min_before_touch = float("inf")
     max_before_touch = float("-inf")
-    max_trade_high = float("-inf")
 
     for idx, (_, candle) in enumerate(df_after_entry.iterrows()):
         candle_low = candle["low"]
@@ -101,86 +91,73 @@ def _resolve_zone(zone: dict, df_after_entry: pd.DataFrame, tf_cfg: dict) -> dic
         candle_close = candle["close"]
         candle_ts = str(candle["timestamp"])
 
-        is_green = candle_close > candle_open
-
-        # --- Phase A: Entry Confirmation ---
         if not touched:
+            touch_threshold = zone["entry_price"] * (1 + tf_cfg["zone_tolerance_pct"] / 100)
             min_before_touch = min(min_before_touch, candle_low)
             max_before_touch = max(max_before_touch, candle_high)
 
-            if candle_low <= entry_price * (1 + tol):
+            if candle_low <= touch_threshold:
+                has_touched_zone = True
+
+            if has_touched_zone:
+                # If price crashes below stop loss before green confirmation -> EXPIRED
                 if candle_low <= current_stop:
-                    # Invalidation before confirmation
                     zone["status"] = "EXPIRED"
                     zone["resolved_at"] = candle_ts
-                    zone["diagnosis"] = "Invalidated: Price crashed below Stop Loss before bullish green confirmation."
+                    zone["diagnosis"] = "Invalidated: Price crashed below Stop Loss before bullish green candle confirmation."
                     return zone
 
-                if is_green:
+                if candle_close > candle_open:
                     touched = True
                     touched_at = candle_ts
                     zone["touched_at"] = touched_at
                     max_trade_high = candle_high
 
-        # --- Phase B: In-Trade Management ---
         if touched:
             max_trade_high = max(max_trade_high, candle_high)
 
-            # Dynamic Profit Locking
-            if getattr(config, "ENABLE_PROFIT_LOCK", True):
-                if candle_high >= lock_t2:
-                    if lock_p2 > current_stop:
-                        current_stop = lock_p2
-                        lock_stage = 2
-                elif candle_high >= lock_t1:
-                    if lock_p1 > current_stop:
-                        current_stop = lock_p1
-                        lock_stage = 1
+            # Breakeven SL activation: 55% target move
+            if getattr(config, "ENABLE_BREAKEVEN_SL", True) and not be_moved:
+                if candle_high >= be_trigger:
+                    be_moved = True
+                    current_stop = zone["entry_price"]
 
-            # 1. Full Target Hit
-            if candle_high >= target_price:
+            if candle_high >= zone["target_price"]:
                 zone["status"] = "WIN"
                 zone["resolved_at"] = candle_ts
-                risk_amt = entry_price - zone["stop_price"]
-                reward_amt = target_price - entry_price
+                risk_amt = zone["entry_price"] - zone["stop_price"]
+                reward_amt = zone["target_price"] - zone["entry_price"]
                 win_rr = (reward_amt / risk_amt) if risk_amt > 0 else zone.get("actual_rr", 1.8)
                 zone["actual_rr"] = round(win_rr, 2)
-                zone["diagnosis"] = (
-                    f"Clean OTE Bounce: Reached Target {target_price:.4f} (+{win_rr:.2f}R Net Profit)."
-                )
+                zone["diagnosis"] = f"Clean OTE Bounce: Reached Target {zone['target_price']:.4f} (+{win_rr:.2f}R net profit)."
                 return zone
-
-            # 2. Stop Loss / Profit Lock Hit
-            if candle_low <= current_stop:
-                if lock_stage > 0:
+            elif candle_low <= current_stop:
+                if be_moved:
                     zone["status"] = "BREAKEVEN"
                     zone["resolved_at"] = candle_ts
-                    risk_amt = entry_price - zone["stop_price"]
-                    reward_lock = current_stop - entry_price
-                    lock_r = (reward_lock / risk_amt) if risk_amt > 0 else 0.40
-                    zone["actual_rr"] = round(lock_r, 2)
-                    pct_hit = round((max_trade_high - entry_price) / dist * 100, 1) if dist > 0 else 60
+                    tp_dist = zone["target_price"] - zone["entry_price"]
+                    pct_tp = round(((max_trade_high - zone["entry_price"]) / tp_dist * 100), 1) if tp_dist > 0 else 0
+                    zone["actual_rr"] = 0.00
                     zone["diagnosis"] = (
-                        f"Profit Lock Exit (+{lock_r:.2f}R Cash Profit): Price reached {pct_hit}% of Target (Max High: {max_trade_high:.4f}), "
-                        f"locked Stage {lock_stage} floor at {current_stop:.4f}, then retraced."
+                        f"Breakeven Retrace (0.00R): Price reached {pct_tp}% of Target (Max High: {max_trade_high:.4f}), "
+                        f"activated BE SL, then retraced back to Entry ({zone['entry_price']:.4f})."
                     )
                     return zone
                 else:
                     zone["status"] = "LOSS"
                     zone["resolved_at"] = candle_ts
-                    zone["actual_rr"] = -1.0
+                    zone["actual_rr"] = -1.00
                     try:
                         from failure_analyzer import diagnose_trade_outcome
                         candles_after_sl = df_after_entry.iloc[idx + 1: idx + 25]
                         diag = diagnose_trade_outcome(zone, candles_after_sl)
                         zone["post_sl_behavior"] = diag.get("post_sl_behavior")
                         zone["post_sl_details"] = diag.get("post_sl_details")
-                        zone["diagnosis"] = diag.get("post_sl_details") or "Price dropped below safe structural stop loss."
+                        zone["diagnosis"] = diag.get("post_sl_details") or "Price did not recover after SL."
                     except Exception:
-                        zone["diagnosis"] = "SL hit: price dumped below structural stop loss."
+                        zone["diagnosis"] = "SL hit: price dumped below stop loss."
                     return zone
 
-        # --- Phase C: Age Limit Check ---
         if idx > age_limit:
             if not touched:
                 zone["status"] = "EXPIRED"
@@ -189,16 +166,16 @@ def _resolve_zone(zone: dict, df_after_entry: pd.DataFrame, tf_cfg: dict) -> dic
                 if min_before_touch <= fib_618:
                     zone["diagnosis"] = (
                         f"Missed Dip (Shallow Pullback): Price bounced from 61.8% Fib ({fib_618:.4f}, Lowest: {min_before_touch:.4f}) "
-                        f"without reaching deep 78.6% OTE Entry ({entry_price:.4f})."
+                        f"without reaching deep 78.6% OTE Entry ({zone['entry_price']:.4f})."
                     )
                 else:
-                    zone["diagnosis"] = f"Impulse Rally: Price moved up without pullback (Lowest: {min_before_touch:.4f})."
-                if max_before_touch >= target_price:
-                    zone["diagnosis"] += f" Target ({target_price:.4f}) was hit during impulse."
+                    zone["diagnosis"] = f"Impulse Rally: Price moved up without significant pullback (Lowest dip: {min_before_touch:.4f})."
+                if max_before_touch >= zone["target_price"]:
+                    zone["diagnosis"] += f" Target ({zone['target_price']:.4f}) was hit during the upward move."
             else:
                 zone["status"] = "TIMEOUT"
                 zone["resolved_at"] = candle_ts
-                zone["diagnosis"] = f"Timeout: Position stayed active for {age_limit} bars without hitting TP or SL."
+                zone["diagnosis"] = f"Timeout: Price stayed within range for {age_limit} bars without hitting TP or SL."
             return zone
 
     zone["status"] = "PENDING"

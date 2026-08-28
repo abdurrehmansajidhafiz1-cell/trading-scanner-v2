@@ -72,15 +72,12 @@ fib500 = isUpLeg ? (lastPivotHigh - 0.500 * swingDiff) : na
 fib618 = isUpLeg ? (lastPivotHigh - 0.618 * swingDiff) : na
 fib786 = isUpLeg ? (lastPivotHigh - 0.786 * swingDiff) : na
 
-// Entry, Safe Stop Loss & Profit-Locking Targets (Sniper OTE System)
-entryPrice   = fib786 // Primary 78.6% Deep OTE Sniper Entry (100% Capital Allocation)
-stopPrice    = isUpLeg ? math.min(lastPivotLow * 0.992, lastPivotLow - (1.75 * atrVal)) : na // Safe Structural SL
-tp1Price     = isUpLeg ? (lastPivotLow + tp1Factor * swingDiff) : na                          // Primary Target (95% Swing High)
-tp2Price     = isUpLeg ? (lastPivotLow + tp2Ext * swingDiff) : na                             // Runner Extension (1.618 Fib)
-
-// Dynamic Profit-Locking Floors
-lockFloor1   = isUpLeg ? (entryPrice + (tp1Price - entryPrice) * 0.25) : na                   // Stage 1 Locked Floor (+0.40R Cash)
-lockTrigger1 = isUpLeg ? (entryPrice + (tp1Price - entryPrice) * 0.60) : na                   // 60% Distance Trigger
+// Entry, Stop Loss, Breakeven & Take Profit Targets
+entryPrice  = fib786 // Primary High-Conviction OTE level
+stopPrice   = isUpLeg ? (lastPivotLow - (atrMult * atrVal)) : na
+tp1Price    = isUpLeg ? (lastPivotLow + tp1Factor * swingDiff) : na
+tp2Price    = isUpLeg ? (lastPivotLow + tp2Ext * swingDiff) : na
+beTrigger   = isUpLeg ? (entryPrice + (tp1Price - entryPrice) * beRatio) : na
 
 riskAmount   = isUpLeg ? (entryPrice - stopPrice) : 0.0
 rewardAmount = isUpLeg ? (tp1Price - entryPrice) : 0.0
@@ -131,33 +128,33 @@ bool qualifies = isUpLeg and (score >= minScore) and (actualRR >= minRR)
 // ============================================================
 // 4. VISUAL CHART OVERLAYS & DASHBOARD TABLE
 // ============================================================
-var box   oteBox    = na
-var line  lineE     = na
-var line  lineSL    = na
-var line  lineLock  = na
-var line  lineTP1   = na
-var line  lineTP2   = na
-var label badgeL    = na
+var box   oteBox   = na
+var line  lineE    = na
+var line  lineSL   = na
+var line  lineBE   = na
+var line  lineTP1  = na
+var line  lineTP2  = na
+var label badgeL   = na
 
 if qualifies and barstate.islast
     box.delete(oteBox)
     line.delete(lineE)
     line.delete(lineSL)
-    line.delete(lineLock)
+    line.delete(lineBE)
     line.delete(lineTP1)
     line.delete(lineTP2)
     label.delete(badgeL)
 
-    oteBox   := box.new(left=lastLowBar, top=fib618, right=bar_index + 20, bottom=fib786, bgcolor=colorOteBox, border_color=color.blue, border_style=line.style_dotted)
-    lineE    := line.new(x1=lastHighBar, y1=entryPrice,   x2=bar_index + 20, y2=entryPrice,   color=colorEntry, width=2, style=line.style_solid)
-    lineSL   := line.new(x1=lastHighBar, y1=stopPrice,    x2=bar_index + 20, y2=stopPrice,    color=colorSL,    width=2, style=line.style_solid)
-    lineLock := line.new(x1=lastHighBar, y1=lockFloor1,   x2=bar_index + 20, y2=lockFloor1,   color=colorBE,    width=1, style=line.style_dotted)
-    lineTP1  := line.new(x1=lastHighBar, y1=tp1Price,     x2=bar_index + 20, y2=tp1Price,     color=colorTP1,   width=2, style=line.style_solid)
-    lineTP2  := line.new(x1=lastHighBar, y1=tp2Price,     x2=bar_index + 20, y2=tp2Price,     color=colorTP2,   width=1, style=line.style_dotted)
+    oteBox  := box.new(left=lastLowBar, top=fib618, right=bar_index + 20, bottom=fib786, bgcolor=colorOteBox, border_color=color.blue, border_style=line.style_dotted)
+    lineE   := line.new(x1=lastHighBar, y1=entryPrice, x2=bar_index + 20, y2=entryPrice, color=colorEntry, width=2, style=line.style_solid)
+    lineSL  := line.new(x1=lastHighBar, y1=stopPrice,  x2=bar_index + 20, y2=stopPrice,  color=colorSL,    width=2, style=line.style_dashed)
+    lineBE  := line.new(x1=lastHighBar, y1=beTrigger,  x2=bar_index + 20, y2=beTrigger,  color=colorBE,    width=1, style=line.style_dotted)
+    lineTP1 := line.new(x1=lastHighBar, y1=tp1Price,   x2=bar_index + 20, y2=tp1Price,   color=colorTP1,   width=2, style=line.style_solid)
+    lineTP2 := line.new(x1=lastHighBar, y1=tp2Price,   x2=bar_index + 20, y2=tp2Price,   color=colorTP2,   width=2, style=line.style_dotted)
 
-    string badgeText = "🟢 SNIPER 78.6% OTE SETUP\nScore: " + str.tostring(score) + "/100 | R:R: 1:" + str.tostring(actualRR, "#.##") + "\nEntry (78.6%): " + str.tostring(entryPrice, "#.####") + "\nSafe SL (1.75x ATR): " + str.tostring(stopPrice, "#.####") + "\n60% Profit Lock: " + str.tostring(lockFloor1, "#.####") + " (+0.40R)\nTP1 Target (95%): " + str.tostring(tp1Price, "#.####") + "\nTP2 Runner (1.618): " + str.tostring(tp2Price, "#.####")
+    string badgeText = "🟢 OTE PRODUCTION SETUP\nScore: " + str.tostring(score) + "/100\nRisk:Reward: 1:" + str.tostring(actualRR, "#.##") + "\nEntry: " + str.tostring(entryPrice, "#.####") + "\nStop Loss: " + str.tostring(stopPrice, "#.####") + "\n55% BE Shift: " + str.tostring(beTrigger, "#.####") + "\nTP1 Target: " + str.tostring(tp1Price, "#.####") + "\nTP2 Extension: " + str.tostring(tp2Price, "#.####")
 
-    badgeL := label.new(x=bar_index + 2, y=tp2Price, text=badgeText, color=color.new(#0A192F, 10), textcolor=color.white, style=label.style_label_left, size=size.normal)
+    badgeL := label.new(x=bar_index + 2, y=tp1Price, text=badgeText, color=color.new(#0A192F, 10), textcolor=color.white, style=label.style_label_left, size=size.normal)
 
 // Pivot Labels
 if not na(ph)

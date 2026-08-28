@@ -59,24 +59,18 @@ def resolve_pending_zones(exchange, coin: str, timeframe: str):
         touched = zone["status"] == "ACTIVE"
         touched_at = zone["touched_at"]
         resolved = False
-        lock_stage = 0
+        be_moved = False
         current_stop = zone["stop_price"]
 
-        entry_price = zone["entry_price"]
-        target_price = zone["target_price"]
-        dist = target_price - entry_price
-
-        lock_t1 = entry_price + (dist * getattr(config, "PROFIT_LOCK_STAGE1_TRIGGER", 0.60))
-        lock_p1 = entry_price + (dist * getattr(config, "PROFIT_LOCK_STAGE1_LOCK", 0.25))
-        lock_t2 = entry_price + (dist * getattr(config, "PROFIT_LOCK_STAGE2_TRIGGER", 0.80))
-        lock_p2 = entry_price + (dist * getattr(config, "PROFIT_LOCK_STAGE2_LOCK", 0.50))
+        be_ratio = getattr(config, "BREAKEVEN_TRIGGER_RATIO", 0.55)
+        be_trigger = zone["entry_price"] + (zone["target_price"] - zone["entry_price"]) * be_ratio
         has_touched_zone = False
 
         for idx, candle in relevant_candles.iterrows():
             candle_ts_str = str(candle["timestamp"])
 
             if not touched:
-                touch_threshold = entry_price * (1 + tf_cfg["zone_tolerance_pct"] / 100)
+                touch_threshold = zone["entry_price"] * (1 + tf_cfg["zone_tolerance_pct"] / 100)
                 if candle["low"] <= touch_threshold:
                     has_touched_zone = True
 
@@ -94,23 +88,18 @@ def resolve_pending_zones(exchange, coin: str, timeframe: str):
                         db.update_zone_status(zone["id"], "ACTIVE", touched_at=touched_at)
 
             if touched:
-                # Dynamic Trailing Profit Lock
-                if getattr(config, "ENABLE_PROFIT_LOCK", True):
-                    if candle["high"] >= lock_t2:
-                        if lock_p2 > current_stop:
-                            current_stop = lock_p2
-                            lock_stage = 2
-                    elif candle["high"] >= lock_t1:
-                        if lock_p1 > current_stop:
-                            current_stop = lock_p1
-                            lock_stage = 1
+                # 55% Breakeven SL Activation
+                if getattr(config, "ENABLE_BREAKEVEN_SL", True) and not be_moved:
+                    if candle["high"] >= be_trigger:
+                        be_moved = True
+                        current_stop = zone["entry_price"]
 
-                if candle["high"] >= target_price:
+                if candle["high"] >= zone["target_price"]:
                     db.update_zone_status(zone["id"], "WIN", touched_at=touched_at, resolved_at=candle_ts_str)
                     resolved = True
                     break
                 elif candle["low"] <= current_stop:
-                    if lock_stage > 0:
+                    if be_moved:
                         db.update_zone_status(zone["id"], "BREAKEVEN", touched_at=touched_at, resolved_at=candle_ts_str)
                     else:
                         db.update_zone_status(zone["id"], "LOSS", touched_at=touched_at, resolved_at=candle_ts_str)
