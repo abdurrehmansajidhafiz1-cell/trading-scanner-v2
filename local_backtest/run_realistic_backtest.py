@@ -333,26 +333,30 @@ def main():
             f"P&L: {overall_metrics['net_pnl_r']:+.2f}R | "
             f"PF: {pf_str} | Regime: {market_type}"
         )
-        header = (
-            "=" * 65 + "\n"
-            "  BACKTEST COMPLETE -- January 2025\n"
-            "  Hourly Dynamic Coin Selection (Live System Logic Simulated)\n"
-            "=" * 65 + "\n\n"
-            f"  Market Regime   : {market_type}\n"
-            f"  Total Zones     : {overall_metrics['total_trades']}\n"
-            f"  Wins            : {overall_metrics['wins']}\n"
-            f"  Losses          : {overall_metrics['losses']}\n"
-            f"  Breakevens      : {overall_metrics.get('breakevens', 0)}\n"
-            f"  Expired         : {overall_metrics['expired']}\n"
-            f"  Timed Out       : {overall_metrics['timed_out']}\n"
-            f"  Win Rate        : {overall_metrics['win_rate_pct']:.1f}%\n"
-            f"  Net P&L         : {overall_metrics['net_pnl_r']:+.2f} R\n"
-            f"  Profit Factor   : {pf_str}\n"
-            f"  Max Drawdown    : {overall_metrics['max_drawdown_r']:.2f} R\n"
-            "\n" + "=" * 65 + "\n"
-            "  FULL DETAILED REPORT BELOW\n"
-            "=" * 65 + "\n\n"
-        )
+        sep = "-" * 65  # "=" Gmail mein quoted-printable issue karta hai, isliye "-" use karo
+        header = "\n".join([
+            sep,
+            "  BACKTEST COMPLETE -- January 2025",
+            "  Hourly Dynamic Coin Selection (Live System Logic Simulated)",
+            sep,
+            "",
+            f"  Market Regime   : {market_type}",
+            f"  Total Zones     : {overall_metrics['total_trades']}",
+            f"  Wins            : {overall_metrics['wins']}",
+            f"  Losses          : {overall_metrics['losses']}",
+            f"  Breakevens      : {overall_metrics.get('breakevens', 0)}",
+            f"  Expired         : {overall_metrics['expired']}",
+            f"  Timed Out       : {overall_metrics['timed_out']}",
+            f"  Win Rate        : {overall_metrics['win_rate_pct']:.1f}%",
+            f"  Net P&L         : {overall_metrics['net_pnl_r']:+.2f} R",
+            f"  Profit Factor   : {pf_str}",
+            f"  Max Drawdown    : {overall_metrics['max_drawdown_r']:.2f} R",
+            "",
+            sep,
+            "  FULL DETAILED REPORT BELOW",
+            sep,
+            "",
+        ]) + "\n"
         success = send_email(subject, header + report_body)
         if success:
             logger.info("[EMAIL] Backtest results email bhej diya!")
