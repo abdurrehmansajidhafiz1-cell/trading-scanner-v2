@@ -1,19 +1,22 @@
 """
-run_realistic_backtest.py -- Realistic Historical Backtest with Hourly Dynamic Coin Selection.
+run_realistic_backtest.py -- Realistic Historical Backtest (Optimized: Pre-Compute + Hourly Filter)
 
-LIVE SYSTEM (har 30 min):
-  - Exchange se live tickers fetch karo
-  - Volume > $15M, Volatility 2.5%-12%, Spread < 0.08% filters apply karo
-  - Top coins sort by volume
+ARCHITECTURE (Fast Version):
+  OLD (slow): Har 720 hourly slots ke liye har coin ka full scan dobara chalaao
+              --> 720 * 15 coins * 2 TFs = ~21,600 full scan calls = 6+ hours
 
-BACKTEST (yeh script -- har 1 ghanta):
-  - Us waqt ke historical 1H candle data se same filters simulate karo
-  - Volume > $15M  -> last 24 x 1H candles ka sum(volume * close)
-  - Volatility 2.5%-12% -> (max_high - min_low) / min_low * 100 over 24H
-  - Top coins sort by volume -> signal_engine chalao
+  NEW (fast): Ek baar sab coins ka full month scan karo, zones collect karo
+              --> Phir har zone ki created_at timestamp check karo: kya us waqt
+                  woh coin hourly dynamic universe mein tha?
+              --> 30 coins * 2 TFs = 60 scan calls = ~15-30 minutes
+
+COIN SELECTION LOGIC (same as live system):
+  - Har zone ki created_at timestamp ke waqt simulate karo: kaunse coins select hote?
+  - Volume > $15M (last 24 x 1H candles se), Volatility 2.5%-12%
+  - Sort by volume, top 20
+  - Agar zone ka coin us time selected tha -> keep, warna discard
 
 Period: 2 January 2025 -> 31 January 2025
-
 Usage:
   cd local_backtest
   python run_realistic_backtest.py
@@ -52,9 +55,10 @@ WARMUP_DAYS              = 90
 FETCH_START              = BACKTEST_START - timedelta(days=WARMUP_DAYS)
 OUTPUT_DIR               = os.path.join(PARENT_DIR, "output")
 
-MIN_24H_VOLUME_USD       = config.MIN_24H_VOLUME_USD
-MIN_DAILY_VOLATILITY_PCT = config.MIN_DAILY_VOLATILITY_PCT
-MAX_DAILY_VOLATILITY_PCT = config.MAX_DAILY_VOLATILITY_PCT
+# Exact same filters as live system
+MIN_24H_VOLUME_USD       = config.MIN_24H_VOLUME_USD        # $15M
+MIN_DAILY_VOLATILITY_PCT = config.MIN_DAILY_VOLATILITY_PCT  # 2.5%
+MAX_DAILY_VOLATILITY_PCT = config.MAX_DAILY_VOLATILITY_PCT  # 12.0%
 DYNAMIC_UNIVERSE_LIMIT   = 20
 
 CANDIDATE_COINS = [
@@ -87,50 +91,89 @@ logging.basicConfig(
 logger = logging.getLogger("realistic_backtest")
 
 
-def simulate_dynamic_universe_at(data_cache, candidate_coins, snapshot_ts, top_n=DYNAMIC_UNIVERSE_LIMIT):
+# ============================================================
+# FAST UNIVERSE SIMULATION -- O(1) lookup per zone
+# ============================================================
+def build_hourly_universe_cache(data_cache, candidate_coins, start_dt, end_dt, top_n=DYNAMIC_UNIVERSE_LIMIT):
     """
-    snapshot_ts ke waqt par live coin_universe.py jaisi selection simulate karta hai.
-    Last 24 x 1H candles se volume aur volatility compute karta hai (no look-ahead).
+    Ek baar sab hourly slots ke liye coin universe pre-compute kar lo.
+    Returns: dict { pd.Timestamp -> list[str] }  (hour -> selected coins)
+
+    Yeh sab hourly selections ek hi baar calculate karta hai -- phir
+    har zone ke liye O(1) lookup hota hai.
     """
-    scored = []
-    for coin in candidate_coins:
-        if coin in STABLECOIN_SYMBOLS:
-            continue
-        df_1h = data_cache.get((coin, "1h"))
-        if df_1h is None or len(df_1h) < 5:
-            continue
-        past = df_1h[df_1h["timestamp"] < snapshot_ts].tail(24)
-        if len(past) < 8:
-            continue
-        vol_usd_24h = float((past["volume"] * past["close"]).sum())
-        if vol_usd_24h < MIN_24H_VOLUME_USD:
-            continue
-        max_h = float(past["high"].max())
-        min_l = float(past["low"].min())
-        if min_l <= 0:
-            continue
-        vol_pct = (max_h - min_l) / min_l * 100
-        if not (MIN_DAILY_VOLATILITY_PCT <= vol_pct <= MAX_DAILY_VOLATILITY_PCT):
-            continue
-        scored.append((coin, vol_usd_24h))
-    scored.sort(key=lambda x: -x[1])
-    return [c[0] for c in scored[:top_n]]
+    hourly_slots = pd.date_range(start=start_dt, end=end_dt, freq="1h", tz="UTC")
+    hour_to_coins = {}
+
+    logger.info(f"  Pre-computing hourly universe for {len(hourly_slots)} slots...")
+    prev_selected = []
+    changed_count = 0
+
+    for slot_ts in hourly_slots:
+        scored = []
+        for coin in candidate_coins:
+            if coin in STABLECOIN_SYMBOLS:
+                continue
+            df_1h = data_cache.get((coin, "1h"))
+            if df_1h is None or len(df_1h) < 5:
+                continue
+            past = df_1h[df_1h["timestamp"] < slot_ts].tail(24)
+            if len(past) < 8:
+                continue
+            vol_usd = float((past["volume"] * past["close"]).sum())
+            if vol_usd < MIN_24H_VOLUME_USD:
+                continue
+            max_h = float(past["high"].max())
+            min_l = float(past["low"].min())
+            if min_l <= 0:
+                continue
+            vol_pct = (max_h - min_l) / min_l * 100
+            if not (MIN_DAILY_VOLATILITY_PCT <= vol_pct <= MAX_DAILY_VOLATILITY_PCT):
+                continue
+            scored.append((coin, vol_usd))
+        scored.sort(key=lambda x: -x[1])
+        selected = [c[0] for c in scored[:top_n]]
+        hour_to_coins[slot_ts] = selected
+
+        if selected != prev_selected:
+            changed_count += 1
+            prev_selected = selected.copy()
+
+    logger.info(f"  Universe cache built. Selection changed {changed_count} times across {len(hourly_slots)} hours.")
+    return hour_to_coins
+
+
+def was_coin_selected_at(hour_to_coins, coin, zone_created_at_str):
+    """
+    Zone ki created_at timestamp ke waqt kya coin selected tha?
+    Zone created_at ko nearest hour pe round karke check karo.
+    """
+    try:
+        ts = pd.Timestamp(zone_created_at_str, tz="UTC") if zone_created_at_str else None
+        if ts is None:
+            return False
+        # Round down to nearest hour
+        hour_ts = ts.floor("h")
+        selected = hour_to_coins.get(hour_ts, [])
+        return coin in selected
+    except Exception:
+        return False
 
 
 def main():
     logger.info("=" * 65)
-    logger.info("  REALISTIC BACKTEST -- January 2025")
-    logger.info("  Hourly Dynamic Coin Selection (Exact Live System Logic)")
-    logger.info(f"  Period : {BACKTEST_START.strftime('%Y-%m-%d')} -> {BACKTEST_END.strftime('%Y-%m-%d')}")
-    logger.info(f"  Candidate Pool : {len(CANDIDATE_COINS)} coins | Top {DYNAMIC_UNIVERSE_LIMIT}/hour selected")
+    logger.info("  REALISTIC BACKTEST -- January 2025 (OPTIMIZED)")
+    logger.info("  Pre-Compute All Zones, Then Apply Hourly Dynamic Filter")
+    logger.info(f"  Period  : {BACKTEST_START.strftime('%Y-%m-%d')} -> {BACKTEST_END.strftime('%Y-%m-%d')}")
+    logger.info(f"  Pool    : {len(CANDIDATE_COINS)} coins | Top {DYNAMIC_UNIVERSE_LIMIT}/hour selected")
     logger.info(f"  Filters : Volume > ${MIN_24H_VOLUME_USD/1e6:.0f}M | Volatility {MIN_DAILY_VOLATILITY_PCT}%-{MAX_DAILY_VOLATILITY_PCT}%")
-    logger.info(f"  Timeframes : {TIMEFRAMES}")
+    logger.info(f"  TFs     : {TIMEFRAMES}")
     logger.info("=" * 65)
 
     exchange, _ = get_working_exchange_local()
 
-    # Phase 1: Fetch data
-    logger.info("\n[PHASE 1] Fetching historical candle data for all candidates...")
+    # ── Phase 1: Fetch full history ───────────────────────────────────────────
+    logger.info("\n[PHASE 1] Fetching historical candle data...")
     data_cache = {}
     for coin in CANDIDATE_COINS:
         for tf in list(set(["1h"] + TIMEFRAMES + ["1d"])):
@@ -147,99 +190,118 @@ def main():
             data_cache[("BTC/USDT", "1h_regime")] = data_cache.get(("BTC/USDT", "1h"))
     logger.info("\n[PHASE 1 COMPLETE]\n")
 
-    # Phase 2: Hourly replay
-    logger.info("[PHASE 2] Hourly Dynamic Replay starting...")
+    # ── Phase 2: Pre-compute hourly universe cache ────────────────────────────
+    logger.info("[PHASE 2] Pre-computing hourly dynamic universe cache...")
+    start_ts_pd = pd.Timestamp(BACKTEST_START)
+    end_ts_pd   = pd.Timestamp(BACKTEST_END)
+    hour_to_coins = build_hourly_universe_cache(
+        data_cache, CANDIDATE_COINS, start_ts_pd, end_ts_pd
+    )
+
+    # Print sample selection on Jan 2 noon
+    sample_key = pd.Timestamp("2025-01-02 12:00:00", tz="UTC")
+    if sample_key in hour_to_coins:
+        logger.info(f"  Sample [Jan 2 12:00 UTC]: {hour_to_coins[sample_key]}")
+    logger.info("[PHASE 2 COMPLETE]\n")
+
+    # ── Phase 3: Full month scan -- ek baar har coin/TF ke liye ──────────────
+    logger.info("[PHASE 3] Running full-period signal scan for ALL candidate coins...")
+    logger.info("  (Ek baar scan, phir hourly filter apply hoga -- much faster!)")
+
     df_btc_1h    = data_cache.get(("BTC/USDT", "1h_regime"))
     df_btc_daily = data_cache.get(("BTC/USDT", "1d"))
 
-    hourly_slots = pd.date_range(start=BACKTEST_START, end=BACKTEST_END, freq="1h", tz="UTC")
-    logger.info(f"  Total hourly slots: {len(hourly_slots)}")
+    all_raw_zones = []   # sab zones -- unfiltered
 
-    all_zones      = []
-    seen_zone_keys = set()
-    prev_selected  = []
+    for coin in CANDIDATE_COINS:
+        df_daily = data_cache.get((coin, "1d"))
+        for tf in TIMEFRAMES:
+            df_main = data_cache.get((coin, tf))
+            if df_main is None or len(df_main) == 0:
+                continue
+            df_inter = data_cache.get((coin, "4h")) if tf == "1h" else None
+            try:
+                zones = backtest_coin_timeframe_period(
+                    df_main=df_main,
+                    df_daily=df_daily if df_daily is not None else df_main.head(0),
+                    df_intermediate=df_inter,
+                    df_btc_1h=df_btc_1h,
+                    df_btc_daily=df_btc_daily,
+                    coin=coin,
+                    timeframe=tf,
+                    period_start=BACKTEST_START,
+                    period_end=BACKTEST_END,
+                    tf_cfg=config.TF_SETTINGS[tf],
+                )
+                all_raw_zones.extend(zones)
+                if zones:
+                    logger.info(f"  {coin} [{tf}] -> {len(zones)} zones found")
+            except Exception as e:
+                logger.warning(f"  Error {coin}[{tf}]: {e}")
 
-    for slot_idx, slot_ts in enumerate(hourly_slots):
-        selected = simulate_dynamic_universe_at(data_cache, CANDIDATE_COINS, slot_ts)
-        if not selected:
-            continue
+    logger.info(f"\n[PHASE 3 COMPLETE] Total raw zones (all coins, unfiltered): {len(all_raw_zones)}")
 
-        if selected != prev_selected or slot_idx % 24 == 0:
-            logger.info(
-                f"  [{slot_ts.strftime('%Y-%m-%d %H:00')} UTC] "
-                f"{len(selected)} coins: {', '.join(selected[:8])}{'...' if len(selected) > 8 else ''}"
-            )
-            prev_selected = selected.copy()
+    # ── Phase 4: Apply hourly dynamic filter ──────────────────────────────────
+    logger.info("\n[PHASE 4] Applying hourly dynamic coin selection filter...")
+    logger.info("  (Sirf woh zones rakhenge jahan us waqt coin selected tha)")
 
-        slot_end = slot_ts + timedelta(hours=1)
+    filtered_zones = []
+    rejected_count = 0
 
-        for coin in selected:
-            df_daily = data_cache.get((coin, "1d"))
-            for tf in TIMEFRAMES:
-                df_main = data_cache.get((coin, tf))
-                if df_main is None or len(df_main) == 0:
-                    continue
-                df_inter = data_cache.get((coin, "4h")) if tf == "1h" else None
-                try:
-                    new_zones = backtest_coin_timeframe_period(
-                        df_main=df_main,
-                        df_daily=df_daily if df_daily is not None else df_main.head(0),
-                        df_intermediate=df_inter,
-                        df_btc_1h=df_btc_1h,
-                        df_btc_daily=df_btc_daily,
-                        coin=coin, timeframe=tf,
-                        period_start=slot_ts.to_pydatetime(),
-                        period_end=slot_end.to_pydatetime(),
-                        tf_cfg=config.TF_SETTINGS[tf],
-                    )
-                    for z in new_zones:
-                        key = (z["coin"], z["timeframe"], str(z.get("created_at", ""))[:16])
-                        if key not in seen_zone_keys:
-                            seen_zone_keys.add(key)
-                            all_zones.append(z)
-                except Exception as e:
-                    logger.debug(f"    Error {coin}[{tf}] @ {slot_ts}: {e}")
+    for zone in all_raw_zones:
+        coin       = zone["coin"]
+        created_at = zone.get("created_at", "")
 
-    logger.info(f"\n[PHASE 2 COMPLETE] Raw zones: {len(all_zones)}")
+        if was_coin_selected_at(hour_to_coins, coin, created_at):
+            filtered_zones.append(zone)
+        else:
+            rejected_count += 1
 
-    # Phase 3: Portfolio protection
-    logger.info("[PHASE 3] Applying portfolio protection...")
-    all_zones = apply_portfolio_protection(all_zones)
-    logger.info(f"  Final zones: {len(all_zones)}")
+    logger.info(f"  Zones after hourly filter : {len(filtered_zones)}")
+    logger.info(f"  Zones rejected (coin not selected that hour): {rejected_count}")
+    logger.info("[PHASE 4 COMPLETE]\n")
+
+    # ── Phase 5: Portfolio protection ────────────────────────────────────────
+    logger.info("[PHASE 5] Applying portfolio protection rules...")
+    final_zones = apply_portfolio_protection(filtered_zones)
+    logger.info(f"  Final zones after protection: {len(final_zones)}")
 
     month_key   = "2025-01"
     market_type = "UNKNOWN"
     if df_btc_daily is not None and len(df_btc_daily) > 0:
         btc_jan = df_btc_daily[
-            (df_btc_daily["timestamp"] >= pd.Timestamp(BACKTEST_START)) &
-            (df_btc_daily["timestamp"] <= pd.Timestamp(BACKTEST_END))
+            (df_btc_daily["timestamp"] >= start_ts_pd) &
+            (df_btc_daily["timestamp"] <= end_ts_pd)
         ]
         market_type = _classify_month_market(btc_jan)
 
-    overall_metrics = compute_metrics(all_zones)
-    day_breakdown   = compute_day_breakdown(all_zones)
+    overall_metrics = compute_metrics(final_zones)
+    day_breakdown   = compute_day_breakdown(final_zones)
     monthly_metrics = {month_key: overall_metrics}
     monthly_results = [{
-        "month_key": month_key, "market_type": market_type,
+        "month_key":      month_key,
+        "market_type":    market_type,
         "selected_coins": CANDIDATE_COINS,
-        "metrics": overall_metrics, "day_breakdown": day_breakdown, "zones": all_zones,
+        "metrics":        overall_metrics,
+        "day_breakdown":  day_breakdown,
+        "zones":          final_zones,
     }]
 
-    # Phase 4: Report
-    logger.info("[PHASE 4] Writing report and CSV...")
+    # ── Phase 6: Report & CSV ─────────────────────────────────────────────────
+    logger.info("[PHASE 6] Writing report and CSV...")
     report_path = write_full_report(
         output_dir=OUTPUT_DIR, overall_metrics=overall_metrics,
         monthly_results=monthly_results, monthly_metrics=monthly_metrics,
-        all_zones=all_zones, coin_universe=CANDIDATE_COINS,
+        all_zones=final_zones, coin_universe=CANDIDATE_COINS,
         timeframes=TIMEFRAMES, start_dt=BACKTEST_START, end_dt=BACKTEST_END,
     )
-    write_zones_csv(OUTPUT_DIR, all_zones)
+    write_zones_csv(OUTPUT_DIR, final_zones)
     generic_csv = os.path.join(OUTPUT_DIR, "backtest_zones.csv")
     jan_csv     = os.path.join(OUTPUT_DIR, "jan2025_realistic_zones.csv")
     if os.path.exists(generic_csv):
         os.replace(generic_csv, jan_csv)
 
-    pf = overall_metrics["profit_factor"]
+    pf     = overall_metrics["profit_factor"]
     pf_str = f"{pf:.2f}" if pf != float("inf") else "inf"
 
     logger.info(f"\n{'=' * 65}")
@@ -259,28 +321,21 @@ def main():
     logger.info(f"  CSV    : {jan_csv}")
     logger.info("=" * 65)
 
-    # ── Phase 5: Email results ────────────────────────────────────────────────
-    # GitHub Actions ya local — dono jagah kaam karega agar SMTP secrets set hon
+    # ── Phase 7: Email results ────────────────────────────────────────────────
     try:
-        sys.path.insert(0, PARENT_DIR)  # email_sender.py parent dir mein hai
+        sys.path.insert(0, PARENT_DIR)
         from email_sender import send_email
-
-        # Report file read karo
         with open(report_path, "r", encoding="utf-8") as f:
             report_body = f.read()
-
         subject = (
             f"[Backtest] Jan 2025 Complete | "
             f"WR: {overall_metrics['win_rate_pct']:.1f}% | "
             f"P&L: {overall_metrics['net_pnl_r']:+.2f}R | "
-            f"PF: {pf_str} | "
-            f"Regime: {market_type}"
+            f"PF: {pf_str} | Regime: {market_type}"
         )
-
-        # Email body: summary + full report
         header = (
             "=" * 65 + "\n"
-            "  BACKTEST COMPLETE — January 2025\n"
+            "  BACKTEST COMPLETE -- January 2025\n"
             "  Hourly Dynamic Coin Selection (Live System Logic Simulated)\n"
             "=" * 65 + "\n\n"
             f"  Market Regime   : {market_type}\n"
@@ -298,15 +353,13 @@ def main():
             "  FULL DETAILED REPORT BELOW\n"
             "=" * 65 + "\n\n"
         )
-
         success = send_email(subject, header + report_body)
         if success:
             logger.info("[EMAIL] Backtest results email bhej diya!")
         else:
-            logger.warning("[EMAIL] Email nahi bheja ja saka (credentials check karo).")
-
+            logger.warning("[EMAIL] Email nahi bheja ja saka.")
     except Exception as e:
-        logger.error(f"[EMAIL] Email bhejte waqt error: {e}")
+        logger.error(f"[EMAIL] Error: {e}")
         logger.info("  (Report file GitHub Artifacts mein available hai.)")
 
 
