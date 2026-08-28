@@ -279,17 +279,20 @@ def analyze(coin: str, timeframe: str, df: pd.DataFrame, df_daily: pd.DataFrame,
             return result
 
     # --- Fibonacci Candidate Evaluation (Multi-Level Selection) ---
-    # Structural Buffer SL: min of 0.5% below Swing Low OR 1.5x ATR below Swing Low
-    sl_atr_mult = getattr(config, "STOP_LOSS_ATR_MULT", 1.5)
-    sl_buffer_pct = getattr(config, "STOP_LOSS_SWING_LOW_BUFFER_PCT", 0.5) / 100
+    # Structural Buffer SL: min of 0.25% below Swing Low OR 1.25x ATR below Swing Low
+    sl_atr_mult = getattr(config, "STOP_LOSS_ATR_MULT", 1.25)
+    sl_buffer_pct = getattr(config, "STOP_LOSS_SWING_LOW_BUFFER_PCT", 0.25) / 100
     stop_price = min(result.swing_low * (1 - sl_buffer_pct), result.swing_low - (sl_atr_mult * atr_val))
 
     target_price = result.swing_low + (diff * config.TP1_SWING_HIGH_FACTOR)
-    tp1_price = result.swing_low + (diff * getattr(config, "PARTIAL_TP1_RATIO", 0.50))
+    entry_1 = result.swing_high - getattr(config, "DUAL_ENTRY_TIER1_RATIO", 0.618) * diff
+    entry_2 = result.swing_high - getattr(config, "DUAL_ENTRY_TIER2_RATIO", 0.786) * diff
+    # TP1 is 65% of the distance from Entry to Target
+    tp1_price = entry_2 + (target_price - entry_2) * getattr(config, "PARTIAL_TP1_RATIO", 0.65)
     tp2_price = result.swing_low + (config.TP2_EXTENSION * diff)
 
-    result.entry_1 = result.swing_high - getattr(config, "DUAL_ENTRY_TIER1_RATIO", 0.618) * diff
-    result.entry_2 = result.swing_high - getattr(config, "DUAL_ENTRY_TIER2_RATIO", 0.786) * diff
+    result.entry_1 = entry_1
+    result.entry_2 = entry_2
     result.stop_price = stop_price
     result.tp1_price = tp1_price
     result.target_price = target_price

@@ -77,8 +77,8 @@ def _resolve_zone(zone: dict, df_after_entry: pd.DataFrame, tf_cfg: dict) -> dic
 
     entry_1 = zone.get("entry_1") or (swing_high - 0.618 * diff)
     entry_2 = zone.get("entry_2") or (swing_high - 0.786 * diff)
-    tp1 = zone.get("tp1_price") or (swing_low + 0.50 * diff)
     tp2 = zone["target_price"]
+    tp1 = zone.get("tp1_price") or (entry_2 + (tp2 - entry_2) * 0.65)
 
     zone["entry_1"] = entry_1
     zone["entry_2"] = entry_2

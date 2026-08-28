@@ -76,14 +76,14 @@ fib786 = isUpLeg ? (lastPivotHigh - 0.786 * swingDiff) : na
 entry1Price = fib618 // Tier 1 Entry (61.8% Golden Fib - 50% Size)
 entry2Price = fib786 // Tier 2 Entry (78.6% Deep OTE - 50% Size)
 
-// Structural Buffer SL: 0.5% below Swing Low or 1.5x ATR below Swing Low
-stopBufferPrice = isUpLeg ? (lastPivotLow * 0.995) : na
-stopAtrPrice    = isUpLeg ? (lastPivotLow - (atrMult * atrVal)) : na
+// Structural Buffer SL: 0.25% below Swing Low or 1.25x ATR below Swing Low
+stopBufferPrice = isUpLeg ? (lastPivotLow * 0.9975) : na
+stopAtrPrice    = isUpLeg ? (lastPivotLow - (1.25 * atrVal)) : na
 stopPrice       = math.min(stopBufferPrice, stopAtrPrice)
 
-tp1Price    = isUpLeg ? (lastPivotLow + 0.50 * swingDiff) : na       // TP1 (50% Target - Lock 50% Profit & Move SL to BE)
-tp2Price    = isUpLeg ? (lastPivotLow + tp1Factor * swingDiff) : na  // TP2 (95% Swing High - Final Target)
-tp3Price    = isUpLeg ? (lastPivotLow + tp2Ext * swingDiff) : na     // TP3 (1.618 Fib Extension - Runner)
+tp2Price    = isUpLeg ? (lastPivotLow + tp1Factor * swingDiff) : na              // TP2 (95% Swing High - Final Target)
+tp1Price    = isUpLeg ? (entry2Price + (tp2Price - entry2Price) * 0.65) : na    // TP1 (65% Distance - Lock 50% Profit & Move SL to BE)
+tp3Price    = isUpLeg ? (lastPivotLow + tp2Ext * swingDiff) : na                 // TP3 (1.618 Fib Extension - Runner)
 beTrigger   = tp1Price // BE automatically activates on TP1
 
 riskAmount   = isUpLeg ? (entry2Price - stopPrice) : 0.0
