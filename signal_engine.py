@@ -279,32 +279,30 @@ def analyze(coin: str, timeframe: str, df: pd.DataFrame, df_daily: pd.DataFrame,
             return result
 
     # --- Fibonacci Candidate Evaluation (Multi-Level Selection) ---
-    # Structural Buffer SL: min of 0.25% below Swing Low OR 1.25x ATR below Swing Low
-    sl_atr_mult = getattr(config, "STOP_LOSS_ATR_MULT", 1.25)
-    sl_buffer_pct = getattr(config, "STOP_LOSS_SWING_LOW_BUFFER_PCT", 0.25) / 100
+    sl_atr_mult = getattr(config, "STOP_LOSS_ATR_MULT", 1.75)
+    sl_buffer_pct = getattr(config, "STOP_LOSS_SWING_LOW_BUFFER_PCT", 0.8) / 100
     stop_price = min(result.swing_low * (1 - sl_buffer_pct), result.swing_low - (sl_atr_mult * atr_val))
 
-    target_price = result.swing_low + (diff * config.TP1_SWING_HIGH_FACTOR)
-    entry_1 = result.swing_high - getattr(config, "DUAL_ENTRY_TIER1_RATIO", 0.618) * diff
-    entry_2 = result.swing_high - getattr(config, "DUAL_ENTRY_TIER2_RATIO", 0.786) * diff
-    # TP1 is 65% of the distance from Entry to Target
-    tp1_price = entry_2 + (target_price - entry_2) * getattr(config, "PARTIAL_TP1_RATIO", 0.65)
-    tp2_price = result.swing_low + (config.TP2_EXTENSION * diff)
+    entry_1 = result.swing_high - 0.618 * diff
+    entry_2 = result.swing_high - 0.786 * diff
+
+    target_price_786 = result.swing_low + (diff * getattr(config, "TP1_SWING_HIGH_FACTOR", 0.95))
+    target_price_618 = result.swing_low + (diff * getattr(config, "TP2_EXTENSION", 1.272))
 
     result.entry_1 = entry_1
     result.entry_2 = entry_2
     result.stop_price = stop_price
-    result.tp1_price = tp1_price
-    result.target_price = target_price
-    result.tp2_price = tp2_price
+    result.target_price = target_price_786
+    result.tp2_price = result.swing_low + (getattr(config, "TP3_EXTENSION", 1.618) * diff)
 
     valid_candidates = []
     all_evaluated = []
 
     for name, (price, ratio) in fib_levels.items():
         score, breakdown = score_zone_intraday(df, price, ratio, overall_trend_up, rsi_val, recent_vol_spike, pivot_len)
+        cand_target = target_price_618 if ratio <= 0.618 else target_price_786
         risk = price - stop_price
-        reward = target_price - price
+        reward = cand_target - price
 
         if risk <= 0:
             continue
@@ -316,6 +314,7 @@ def analyze(coin: str, timeframe: str, df: pd.DataFrame, df_daily: pd.DataFrame,
             "score": score,
             "breakdown": breakdown,
             "rr": rr,
+            "target_price": cand_target,
         }
         all_evaluated.append(candidate)
 
@@ -327,6 +326,7 @@ def analyze(coin: str, timeframe: str, df: pd.DataFrame, df_daily: pd.DataFrame,
         best = max(valid_candidates, key=lambda c: (c["score"], c["rr"]))
         result.best_zone_name = best["name"]
         result.best_zone_price = best["price"]
+        result.target_price = best.get("target_price", target_price_786)
         result.best_score = best["score"]
         result.score_breakdown = best["breakdown"]
         result.actual_rr = best["rr"]

@@ -70,24 +70,24 @@ PRIOR_LEVEL_TOLERANCE_PCT = 0.5
 # ============================================================
 # RISK-REWARD & EXECUTION MODEL
 # ============================================================
-MIN_RR = float(os.environ.get("MIN_RR", 1.3))  # Minimum 1:1.3 Risk-to-Reward
-STOP_LOSS_ATR_MULT = 1.25     # Volatility-based stop loss: 1.25x ATR buffer (maintains R:R >= 1.3)
-STOP_LOSS_SWING_LOW_BUFFER_PCT = 0.25 # 0.25% structural buffer below Swing Low
-MIN_RANGE_PCT = 1.0          # Minimum swing range jo valid maana jaye
+MIN_RR = float(os.environ.get("MIN_RR", 1.25))  # Minimum 1:1.25 Risk-to-Reward (Accommodates 1.75x ATR Safe SL)
+STOP_LOSS_ATR_MULT = 1.75      # Volatility-based safe stop loss: 1.75x ATR (Sweeps & fakeouts protection)
+STOP_LOSS_SWING_LOW_BUFFER_PCT = 0.8 # 0.8% structural buffer below Swing Low
+MIN_RANGE_PCT = 1.0           # Minimum swing range jo valid maana jaye
 
-# Dual-Tier Entry Model (Split Limit Orders)
-DUAL_ENTRY_TIER1_RATIO = 0.618  # Tier 1 Entry (61.8% Golden Fib - 50% Size)
-DUAL_ENTRY_TIER2_RATIO = 0.786  # Tier 2 Entry (78.6% Deep OTE - 50% Size)
+# Primary Entry Level: 78.6% Deep OTE Sniper Entry (100% Allocation for max asymmetric R:R)
+ENTRY_FIB_RATIO = 0.786
+TP1_SWING_HIGH_FACTOR = 0.95   # Primary Target @ 95% of Swing High
+TP2_EXTENSION = 1.272          # Extended Target @ 1.272 Fib Extension (for shallow 61.8% reversals)
+TP3_EXTENSION = 1.618          # Runner Target @ 1.618 Fib Extension
 
-# Dual Take-Profit & Breakeven Mechanism
-PARTIAL_TP1_RATIO = 0.65        # TP1 @ 65% of Target Distance (Lock 50% Profit & Shift SL to BE)
-PARTIAL_TP1_CLOSE_PCT = 0.50    # Close 50% position on TP1 hit
-TP1_SWING_HIGH_FACTOR = 0.95    # TP2 / Final Target @ 95% of Swing High distance
-TP2_EXTENSION = 1.618           # TP3 / Extended Target @ 1.618 Fib Extension
-
-# Breakeven Stop Loss Mechanism
+# Dynamic Trailing Profit-Locking Mechanism (Never return to 0.00R Breakeven!)
+ENABLE_PROFIT_LOCK = True
+PROFIT_LOCK_STAGE1_TRIGGER = 0.60  # At 60% of Target move (~+1.0R gain)
+PROFIT_LOCK_STAGE1_LOCK    = 0.25  # Lock SL to +25% of Target move (+0.40R Guaranteed Cash Profit)
+PROFIT_LOCK_STAGE2_TRIGGER = 0.80  # At 80% of Target move (~+1.4R gain)
+PROFIT_LOCK_STAGE2_LOCK    = 0.50  # Lock SL to +50% of Target move (+0.80R Guaranteed Cash Profit)
 ENABLE_BREAKEVEN_SL = True
-BREAKEVEN_TRIGGER_RATIO = 0.65  # 65% target move (TP1) hone par SL entry pe shift (risk-free runner)
 
 # ============================================================
 # MANDATORY QUALITY FILTERS (Hard Filters — Score se alag)

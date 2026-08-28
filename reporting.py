@@ -142,17 +142,14 @@ def _cumulative_all_time_ledger_section() -> str:
         lines.append(f"\n  [#{idx:>02}] {z['coin']} [{z['timeframe']}] — {status}")
         lines.append(f"    Zone level: {z.get('level_name', '78.6% OTE')}")
         lines.append(f"    Structure created: {created_str}")
-        if z.get("entry_1") and z.get("entry_2"):
-            lines.append(f"    Tier 1 Entry (61.8% Fib): {_fmt_num(z.get('entry_1'))} (50% Allocation)")
-            lines.append(f"    Tier 2 Entry (78.6% OTE): {_fmt_num(z.get('entry_2'))} (50% Allocation)")
-        else:
-            lines.append(f"    Entry Price: {_fmt_num(z.get('entry_price'))}")
-        lines.append(f"    Stop Loss (Buffer): {_fmt_num(z.get('stop_price'))}")
-        if z.get("tp1_price"):
-            lines.append(f"    Target 1 (TP1 - 50%): {_fmt_num(z.get('tp1_price'))} (Lock 50% Profit + SL to BE)")
-            lines.append(f"    Target 2 (TP2 - 100%): {_fmt_num(z.get('target_price'))} (Final Target)")
-        else:
-            lines.append(f"    Take Profit: {_fmt_num(z.get('target_price'))}")
+        lines.append(f"    Entry Price: {_fmt_num(z.get('entry_price'))}")
+        lines.append(f"    Stop Loss (Safe 1.75x ATR): {_fmt_num(z.get('stop_price'))}")
+        target_p = z.get('target_price')
+        entry_p = z.get('entry_price')
+        if target_p and entry_p and target_p > entry_p:
+            lock_p = entry_p + (target_p - entry_p) * 0.25
+            lines.append(f"    60% Profit Lock Floor: {_fmt_num(lock_p)} (+0.40R Cash Profit)")
+        lines.append(f"    Take Profit (95% Target): {_fmt_num(target_p)}")
         lines.append(f"    Risk:Reward Ratio: 1:{_fmt_num(z.get('actual_rr'), 2)}")
         lines.append(f"    Confluence Score: {z.get('score', 0)}/100 ({breakdown})")
         lines.append(f"    Swing Structure: {_fmt_num(z.get('swing_low'))} -> {_fmt_num(z.get('swing_high'))}")
@@ -270,21 +267,17 @@ def generate_report(period_label: str, start_dt: datetime, end_dt: datetime, inc
             created_str = tz.format_both(datetime.fromisoformat(z["created_at"])) if z["created_at"] else "N/A"
             lines.append(f"\n  {z['coin']} [{z['timeframe']}] — {z['status']}")
             lines.append(f"    Zone level: {z['level_name']}")
-            lines.append(f"    Structure created: {created_str}")
-            if z.get("entry_1") and z.get("entry_2"):
-                lines.append(f"    Tier 1 Entry (61.8% Fib): {_fmt_num(z.get('entry_1'))} (50% Allocation)")
-                lines.append(f"    Tier 2 Entry (78.6% OTE): {_fmt_num(z.get('entry_2'))} (50% Allocation)")
-            else:
-                lines.append(f"    Entry Price: {_fmt_num(z['entry_price'])}")
-            lines.append(f"    Stop Loss (Buffer): {_fmt_num(z['stop_price'])}")
-            if z.get("tp1_price"):
-                lines.append(f"    Target 1 (TP1 - 50%): {_fmt_num(z.get('tp1_price'))} (Lock 50% Profit + SL to BE)")
-                lines.append(f"    Target 2 (TP2 - 100%): {_fmt_num(z.get('target_price'))} (Final Target)")
-            else:
-                lines.append(f"    Take Profit: {_fmt_num(z['target_price'])}")
-            lines.append(f"    Risk:Reward Ratio: 1:{_fmt_num(z['actual_rr'], 2)}")
-            lines.append(f"    Confluence Score: {z['score']}/100 ({breakdown})")
-            lines.append(f"    Swing Structure: {_fmt_num(z['swing_low'])} -> {_fmt_num(z['swing_high'])}")
+            lines.append(f"    Entry Price: {_fmt_num(z.get('entry_price'))}")
+            lines.append(f"    Stop Loss (Safe 1.75x ATR): {_fmt_num(z.get('stop_price'))}")
+            target_p = z.get('target_price')
+            entry_p = z.get('entry_price')
+            if target_p and entry_p and target_p > entry_p:
+                lock_p = entry_p + (target_p - entry_p) * 0.25
+                lines.append(f"    60% Profit Lock Floor: {_fmt_num(lock_p)} (+0.40R Cash Profit)")
+            lines.append(f"    Take Profit (95% Target): {_fmt_num(target_p)}")
+            lines.append(f"    Risk:Reward Ratio: 1:{_fmt_num(z.get('actual_rr'), 2)}")
+            lines.append(f"    Confluence Score: {z.get('score', 0)}/100 ({breakdown})")
+            lines.append(f"    Swing Structure: {_fmt_num(z.get('swing_low'))} -> {_fmt_num(z.get('swing_high'))}")
             if z["touched_at"]:
                 lines.append(f"    Touched at: {tz.format_both(datetime.fromisoformat(z['touched_at']))}")
             if z["resolved_at"]:
