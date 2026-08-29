@@ -55,7 +55,8 @@ def resolve_pending_zones(exchange, coin: str, timeframe: str):
         if created_at_ts.tzinfo is None:
             created_at_ts = created_at_ts.tz_localize("UTC")
 
-        relevant_candles = df[df["timestamp"] >= created_at_ts].reset_index(drop=True)
+        # Strictly evaluate candles AFTER the structure creation / swing high bar
+        relevant_candles = df[df["timestamp"] > created_at_ts].reset_index(drop=True)
         touched = zone["status"] == "ACTIVE"
         touched_at = zone["touched_at"]
         resolved = False
@@ -69,6 +70,7 @@ def resolve_pending_zones(exchange, coin: str, timeframe: str):
         for idx, candle in relevant_candles.iterrows():
             candle_ts_str = str(candle["timestamp"])
 
+            # Step 1: Wait for price to touch Entry Zone and confirm with a green candle
             if not touched:
                 touch_threshold = zone["entry_price"] * (1 + tf_cfg["zone_tolerance_pct"] / 100)
                 if candle["low"] <= touch_threshold:
@@ -86,7 +88,11 @@ def resolve_pending_zones(exchange, coin: str, timeframe: str):
                         touched = True
                         touched_at = candle_ts_str
                         db.update_zone_status(zone["id"], "ACTIVE", touched_at=touched_at)
+                
+                # Do not evaluate TP/SL resolution on the exact candle where entry was confirmed
+                continue
 
+            # Step 2: Trade is ACTIVE -> Track Breakeven, Take-Profit, and Stop-Loss
             if touched:
                 # 55% Breakeven SL Activation
                 if getattr(config, "ENABLE_BREAKEVEN_SL", True) and not be_moved:
@@ -127,6 +133,22 @@ def resolve_pending_zones(exchange, coin: str, timeframe: str):
             candles_since_touch = relevant_candles[relevant_candles["timestamp"] >= touched_at_ts]
             if len(candles_since_touch) > age_limit:
                 db.update_zone_status(zone["id"], "TIMEOUT", touched_at=touched_at, resolved_at=db.now_iso())
+
+
+def reconcile_historical_zones(exchange):
+    """
+    Past database zones ko clean historical OHLCV data ke sath re-evaluate karta hai
+    taake purani reports ka timing bug 100% correct ho jaye.
+    """
+    all_zones = db.get_all_zones()
+    if not all_zones:
+        return
+
+    logger.info(f"Reconciling {len(all_zones)} historical zones for timing accuracy...")
+    for zone in all_zones:
+        # Reset to pending temporarily for clean re-evaluation
+        db.update_zone_status(zone["id"], "PENDING", touched_at=None, resolved_at=None)
+        resolve_pending_zones(exchange, zone["coin"], zone["timeframe"])
 
 
 def _truncate_to(df: pd.DataFrame, cutoff_time) -> pd.DataFrame:
@@ -276,6 +298,15 @@ def scan_once():
 
     exchange, exchange_id = get_working_exchange()
     logger.info(f"Scan shuru — exchange: {exchange_id}")
+
+    # One-time auto-reconciliation of past historical zones to fix timestamps
+    if not db.get_config("historical_reconciled_v2"):
+        try:
+            reconcile_historical_zones(exchange)
+            db.set_config("historical_reconciled_v2", "true")
+            logger.info("Historical zones reconciled successfully with accurate timestamps!")
+        except Exception as e:
+            logger.warning(f"Historical reconciliation error: {e}")
 
     coins = fetch_top_coins(exchange)
     if not coins:
