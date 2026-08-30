@@ -152,10 +152,12 @@ def test_instant_alert_generation():
     }
     alert_text = generate_instant_signal_alert_text(sample_zone)
     print(alert_text[:500].encode("ascii", "replace").decode("ascii") + "\n...")
+    assert "PLAYBOOK 1: $100 CAPITAL (USD)" in alert_text
+    assert "PLAYBOOK 2: $35 CAPITAL (IN PAKISTANI RUPEES — PKR" in alert_text
     assert "SCENARIO 1" in alert_text
     assert "SCENARIO 10" in alert_text
-    assert "BINANCE TRADING FEES" in alert_text
-    print("Instant Alert Generation Test: OK\n")
+    assert "PKR" in alert_text
+    print("Instant Alert Generation Test (Dual USD & PKR Playbooks): OK\n")
 
 
 if __name__ == "__main__":

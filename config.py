@@ -124,6 +124,7 @@ CONSEC_LOSS_PAUSE_HOURS = 36        # 36 ghante ka cooling period
 # Real Execution Cost Modeling (Binance)
 BINANCE_FEE_PCT = 0.075      # 0.075% fee per side (with standard/BNB spot rate)
 SLIPPAGE_PCT = 0.04          # 0.04% realistic slippage assumption
+USDT_PKR_RATE = float(os.environ.get("USDT_PKR_RATE", 280.0))  # 1 USDT = 280 PKR for PKR Playbook
 
 # Portfolio Exposure Limit (Anti-Cascade Dump Protection)
 MAX_ACTIVE_TRADES = int(os.environ.get("MAX_ACTIVE_TRADES", 4))
