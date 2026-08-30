@@ -212,7 +212,7 @@ def process_coin_timeframe(exchange, coin: str, timeframe: str, start_datetime: 
             structure_after_start = result.structure_created_at and result.structure_created_at >= start_datetime
 
             if not already_recorded and structure_after_start:
-                db.insert_zone(
+                zone_id = db.insert_zone(
                     coin=coin, timeframe=timeframe, level_name=result.best_zone_name,
                     entry_price=result.best_zone_price, stop_price=result.stop_price,
                     target_price=result.target_price, swing_low=result.swing_low,
@@ -220,11 +220,30 @@ def process_coin_timeframe(exchange, coin: str, timeframe: str, start_datetime: 
                     actual_rr=result.actual_rr, pivot_len=result.pivot_len,
                     created_at=result.structure_created_at, score_breakdown=result.score_breakdown,
                     entry_1=result.entry_1, entry_2=result.entry_2, tp1_price=result.tp1_price,
+                    tp2_price=result.tp2_price,
                 )
                 qualified_count += 1
                 logger.info(f"NAYA ZONE: {coin} [{timeframe}] {result.best_zone_name} "
                             f"@ {result.best_zone_price:.4f} (Tier1: {result.entry_1:.4f}, Tier2: {result.entry_2:.4f}), "
                             f"score {result.best_score}, R:R 1:{result.actual_rr:.2f} (candle: {checked_at})")
+
+                if getattr(config, "ENABLE_INSTANT_ALERTS", True):
+                    from reporting import send_instant_signal_alert
+                    zone_dict = {
+                        "id": zone_id, "coin": coin, "timeframe": timeframe,
+                        "level_name": result.best_zone_name, "entry_price": result.best_zone_price,
+                        "stop_price": result.stop_price, "target_price": result.target_price,
+                        "swing_low": result.swing_low, "swing_high": result.swing_high,
+                        "score": result.best_score, "actual_rr": result.actual_rr,
+                        "pivot_len": result.pivot_len, "created_at": result.structure_created_at,
+                        "score_breakdown": result.score_breakdown, "entry_1": result.entry_1,
+                        "entry_2": result.entry_2, "tp1_price": result.tp1_price,
+                        "tp2_price": result.tp2_price,
+                    }
+                    sent = send_instant_signal_alert(zone_dict)
+                    if sent:
+                        db.mark_zone_alert_sent(zone_id)
+                        logger.info(f"Instant trade signal alert sent for {coin} [{timeframe}]!")
 
             qualifying.append({
                 "coin": coin, "timeframe": timeframe, "level": result.best_zone_name,

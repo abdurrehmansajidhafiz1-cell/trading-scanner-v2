@@ -130,6 +130,34 @@ def test_reporting():
     print("Reporting Test: OK\n")
 
 
+def test_instant_alert_generation():
+    print("=== Testing reporting.generate_instant_signal_alert_text() ===")
+    from reporting import generate_instant_signal_alert_text
+    sample_zone = {
+        "coin": "SOL/USDT",
+        "timeframe": "1h",
+        "score": 100,
+        "score_breakdown": {"ote_zone": 30, "htf_bos_alignment": 25, "volume_expansion": 20, "rsi_divergence_or_os": 15, "prior_level_flip": 10},
+        "swing_low": 94.96,
+        "swing_high": 110.60,
+        "entry_price": 98.31,
+        "entry_1": 100.93,
+        "entry_2": 98.31,
+        "stop_price": 92.46,
+        "target_price": 109.82,
+        "tp1_price": 109.82,
+        "tp2_price": 120.26,
+        "actual_rr": 1.97,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    alert_text = generate_instant_signal_alert_text(sample_zone)
+    print(alert_text[:500].encode("ascii", "replace").decode("ascii") + "\n...")
+    assert "SCENARIO 1" in alert_text
+    assert "SCENARIO 10" in alert_text
+    assert "BINANCE TRADING FEES" in alert_text
+    print("Instant Alert Generation Test: OK\n")
+
+
 if __name__ == "__main__":
     test_signal_engine()
     test_dynamic_universe()
@@ -137,4 +165,5 @@ if __name__ == "__main__":
     test_backtester_engine()
     test_database()
     test_reporting()
+    test_instant_alert_generation()
     print("=== All offline tests ran and passed cleanly ===")

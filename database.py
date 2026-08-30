@@ -114,6 +114,8 @@ def init_db():
             ("zones", "entry_1 REAL"),
             ("zones", "entry_2 REAL"),
             ("zones", "tp1_price REAL"),
+            ("zones", "tp2_price REAL"),
+            ("zones", "is_alert_sent INTEGER DEFAULT 0"),
             ("zones", "tier1_filled INTEGER DEFAULT 0"),
             ("zones", "tier2_filled INTEGER DEFAULT 0"),
             ("zones", "partial_tp_hit INTEGER DEFAULT 0"),
@@ -160,7 +162,8 @@ def get_swing_state(coin, timeframe):
 def set_swing_state(coin, timeframe, swing_high, swing_high_time, swing_low, swing_low_time, last_recorded_zone_price):
     with db_cursor() as cur:
         cur.execute("""
-            INSERT INTO swing_state (coin, timeframe, swing_high, swing_high_time, swing_low, swing_low_time, last_recorded_zone_price)
+            INSERT INTO swing_state (coin, timeframe, swing_high, swing_high_time,
+                                     swing_low, swing_low_time, last_recorded_zone_price)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(coin, timeframe) DO UPDATE SET
                 swing_high = excluded.swing_high,
@@ -174,18 +177,23 @@ def set_swing_state(coin, timeframe, swing_high, swing_high_time, swing_low, swi
 # ---------------- zones helpers ----------------
 
 def insert_zone(coin, timeframe, level_name, entry_price, stop_price, target_price,
-                 swing_low, swing_high, score, actual_rr, pivot_len, created_at, score_breakdown,
-                 entry_1=None, entry_2=None, tp1_price=None):
+                swing_low, swing_high, score, actual_rr, pivot_len, created_at,
+                score_breakdown=None, entry_1=None, entry_2=None, tp1_price=None, tp2_price=None):
     with db_cursor() as cur:
         cur.execute("""
             INSERT INTO zones (coin, timeframe, level_name, entry_price, stop_price, target_price,
                                 swing_low, swing_high, score, actual_rr, pivot_len, created_at,
-                                status, score_breakdown, entry_1, entry_2, tp1_price)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)
+                                status, score_breakdown, entry_1, entry_2, tp1_price, tp2_price, is_alert_sent)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, 0)
         """, (coin, timeframe, level_name, entry_price, stop_price, target_price,
               swing_low, swing_high, score, actual_rr, pivot_len, created_at,
-              json.dumps(score_breakdown), entry_1, entry_2, tp1_price))
+              json.dumps(score_breakdown) if score_breakdown else None, entry_1, entry_2, tp1_price, tp2_price))
         return cur.lastrowid
+
+
+def mark_zone_alert_sent(zone_id):
+    with db_cursor() as cur:
+        cur.execute("UPDATE zones SET is_alert_sent=1 WHERE id=?", (zone_id,))
 
 
 def get_pending_zones(coin=None, timeframe=None):

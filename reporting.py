@@ -490,3 +490,218 @@ def should_send_report(period: str) -> tuple:
 
 def mark_period_sent(period: str, when: datetime):
     db.set_config(f"last_report_{period}", when.isoformat())
+
+
+def generate_instant_signal_alert_text(z: dict) -> str:
+    """
+    Builds a real-time instant alert email text containing:
+    1. Zone metadata and dual PKT/UTC timestamps.
+    2. Exact execution levels (61.8% Entry, 78.6% OTE Entry, Safe SL, 55% BE Trigger, TP1 Target, TP2 Extension).
+    3. Complete 10-Scenario $100 Capital Execution Playbook (after Binance trading fees).
+    """
+    coin = z.get("coin", "UNKNOWN")
+    timeframe = z.get("timeframe", "1h")
+    score = z.get("score", 0)
+    breakdown = z.get("score_breakdown", {})
+    if isinstance(breakdown, str):
+        try:
+            breakdown = json.loads(breakdown)
+        except Exception:
+            pass
+
+    created_at_raw = z.get("created_at")
+    if created_at_raw:
+        try:
+            created_dt = datetime.fromisoformat(created_at_raw)
+            created_str = tz.format_both(created_dt)
+        except Exception:
+            created_str = str(created_at_raw)
+    else:
+        created_str = "N/A"
+
+    now_utc = datetime.now(timezone.utc)
+    alert_str = tz.format_both(now_utc)
+
+    swing_low = z.get("swing_low") or 0.0
+    swing_high = z.get("swing_high") or 0.0
+    diff = swing_high - swing_low if (swing_high > swing_low) else 0.0
+
+    p_e1 = z.get("entry_1") or (swing_high - 0.618 * diff if diff > 0 else z.get("entry_price", 0.0))
+    p_e2 = z.get("entry_2") or (swing_high - 0.786 * diff if diff > 0 else z.get("entry_price", 0.0))
+    p_sl = z.get("stop_price", 0.0)
+    p_tp1 = z.get("tp1_price") or z.get("target_price", 0.0)
+    p_tp2 = z.get("tp2_price") or (swing_low + 1.618 * diff if diff > 0 else p_tp1 * 1.05)
+
+    be_ratio = getattr(config, "BREAKEVEN_TRIGGER_RATIO", 0.55)
+    p_be = p_e2 + (p_tp1 - p_e2) * be_ratio if (p_tp1 > p_e2) else p_e1 * 1.02
+
+    fee_rate = getattr(config, "BINANCE_FEE_PCT", 0.075) / 100.0
+    capital = 100.0
+
+    # 1. Full Fill -> TP1 Exit
+    c1_50 = 50.0 / p_e1 if p_e1 > 0 else 0.0
+    c2_50 = 50.0 / p_e2 if p_e2 > 0 else 0.0
+    tot_coins_full = c1_50 + c2_50
+    avg_entry_full = (100.0 / tot_coins_full) if tot_coins_full > 0 else p_e2
+
+    rev_s1 = tot_coins_full * p_tp1
+    fee_s1 = (100.0 + rev_s1) * fee_rate
+    gross_s1 = rev_s1 - 100.0
+    net_s1 = gross_s1 - fee_s1
+
+    # 2. Shallow Fill -> TP1 Exit
+    c_shallow = 50.0 / p_e1 if p_e1 > 0 else 0.0
+    rev_s2 = c_shallow * p_tp1
+    fee_s2 = (50.0 + rev_s2) * fee_rate
+    gross_s2 = rev_s2 - 50.0
+    net_s2 = gross_s2 - fee_s2
+
+    # 3. Full Fill -> 50% @ BE + 50% @ TP1
+    sale_be_s3 = (tot_coins_full * 0.5) * p_be
+    sale_tp_s3 = (tot_coins_full * 0.5) * p_tp1
+    rev_s3 = sale_be_s3 + sale_tp_s3
+    fee_s3 = (100.0 + rev_s3) * fee_rate
+    gross_s3 = rev_s3 - 100.0
+    net_s3 = gross_s3 - fee_s3
+
+    # 4. Shallow Fill -> 50% @ BE + 50% @ TP1
+    sale_be_s4 = (c_shallow * 0.5) * p_be
+    sale_tp_s4 = (c_shallow * 0.5) * p_tp1
+    rev_s4 = sale_be_s4 + sale_tp_s4
+    fee_s4 = (50.0 + rev_s4) * fee_rate
+    gross_s4 = rev_s4 - 50.0
+    net_s4 = gross_s4 - fee_s4
+
+    # 5. Full Fill -> 70% @ TP1 + 30% @ TP2
+    sale_tp1_s5 = (tot_coins_full * 0.7) * p_tp1
+    sale_tp2_s5 = (tot_coins_full * 0.3) * p_tp2
+    rev_s5 = sale_tp1_s5 + sale_tp2_s5
+    fee_s5 = (100.0 + rev_s5) * fee_rate
+    gross_s5 = rev_s5 - 100.0
+    net_s5 = gross_s5 - fee_s5
+
+    # 6. Shallow Fill -> 70% @ TP1 + 30% @ TP2
+    sale_tp1_s6 = (c_shallow * 0.7) * p_tp1
+    sale_tp2_s6 = (c_shallow * 0.3) * p_tp2
+    rev_s6 = sale_tp1_s6 + sale_tp2_s6
+    fee_s6 = (50.0 + rev_s6) * fee_rate
+    gross_s6 = rev_s6 - 50.0
+    net_s6 = gross_s6 - fee_s6
+
+    # 7. Full Fill -> 50% @ BE + Retrace to Avg Entry SL (50% BE Exit)
+    sale_be_s7 = (tot_coins_full * 0.5) * p_be
+    sale_ret_s7 = (tot_coins_full * 0.5) * avg_entry_full
+    rev_s7 = sale_be_s7 + sale_ret_s7
+    fee_s7 = (100.0 + rev_s7) * fee_rate
+    gross_s7 = rev_s7 - 100.0
+    net_s7 = gross_s7 - fee_s7
+
+    # 8. Shallow Fill -> 50% @ BE + Retrace to Entry 1 SL (50% BE Exit)
+    sale_be_s8 = (c_shallow * 0.5) * p_be
+    sale_ret_s8 = (c_shallow * 0.5) * p_e1
+    rev_s8 = sale_be_s8 + sale_ret_s8
+    fee_s8 = (50.0 + rev_s8) * fee_rate
+    gross_s8 = rev_s8 - 50.0
+    net_s8 = gross_s8 - fee_s8
+
+    # 9. Full Fill -> Direct Stop Loss Hit
+    rev_s9 = tot_coins_full * p_sl
+    fee_s9 = (100.0 + rev_s9) * fee_rate
+    gross_s9 = rev_s9 - 100.0
+    net_s9 = gross_s9 - fee_s9
+
+    # 10. Shallow Fill -> Direct Stop Loss Hit
+    rev_s10 = c_shallow * p_sl
+    fee_s10 = (50.0 + rev_s10) * fee_rate
+    gross_s10 = rev_s10 - 50.0
+    net_s10 = gross_s10 - fee_s10
+
+    lines = [
+        "================================================================================",
+        f"🚨 INTRADAY FIBONACCI TRADE SIGNAL — INSTANT ALERT",
+        "================================================================================",
+        f"Coin:                {coin}",
+        f"Timeframe:           {timeframe}",
+        f"Confluence Score:    {score}/100",
+        f"Score Breakdown:     {breakdown}",
+        f"Swing Structure:     {_fmt_num(swing_low)} -> {_fmt_num(swing_high)}",
+        f"Structure Created:   {created_str}",
+        f"Alert Triggered:     {alert_str}",
+        "================================================================================",
+        "",
+        "🎯 KEY EXECUTION LEVELS:",
+        "--------------------------------------------------------------------------------",
+        f"Tier 1 Entry (61.8% Fib):       {_fmt_num(p_e1)}  [Allocate $50 (50% Size)]",
+        f"Tier 2 Entry (78.6% OTE):       {_fmt_num(p_e2)}  [Allocate $50 (50% Size)]",
+        f"Stop Loss (Safe 1.2x ATR):      {_fmt_num(p_sl)}  [Hard Stop Level]",
+        f"Breakeven Shift Trigger (55%):  {_fmt_num(p_be)}  [Move SL to Entry here!]",
+        f"Target 1 (Primary - 95% High):  {_fmt_num(p_tp1)}  [Major Take Profit]",
+        f"Target 2 (Runner - 1.618 Ext):  {_fmt_num(p_tp2)}  [Extended Extension]",
+        f"Risk:Reward Ratio (Base 78.6%): 1:{_fmt_num(z.get('actual_rr'), 2)}",
+        "",
+        "================================================================================",
+        f"💵 $100 CAPITAL EXECUTION PLAYBOOK (AFTER BINANCE TRADING FEES @ {fee_rate*100:.3f}%):",
+        "================================================================================",
+        "",
+        "[SCENARIO 1] Full Fill (50% @ 61.8 + 50% @ 78.6) -> 100% Exit at TP1",
+        f"  • Avg Entry: {_fmt_num(avg_entry_full)} ({tot_coins_full:.4f} coins)",
+        f"  • Gross: {gross_s1:+.2f} USDT | Fees: -{fee_s1:.2f} USDT",
+        f"  • NET PROFIT: {net_s1:+.2f} USDT ({net_s1:+.2f}%)  --> Wallet: ${capital+net_s1:.2f}",
+        "",
+        "[SCENARIO 2] Shallow Reversal (Only 61.8% Fill) -> 100% Exit at TP1",
+        f"  • Entry: {_fmt_num(p_e1)} ({c_shallow:.4f} coins - $50 Capital)",
+        f"  • Gross: {gross_s2:+.2f} USDT | Fees: -{fee_s2:.2f} USDT",
+        f"  • NET PROFIT: {net_s2:+.2f} USDT ({net_s2:+.2f}%)  --> Wallet: ${capital+net_s2:.2f}",
+        "",
+        f"[SCENARIO 3] Full Fill -> 50% Exit @ BE ({_fmt_num(p_be)}) + 50% Exit @ TP1 ({_fmt_num(p_tp1)})",
+        f"  • 50% locked at BE move + 50% at full target",
+        f"  • Gross: {gross_s3:+.2f} USDT | Fees: -{fee_s3:.2f} USDT",
+        f"  • NET PROFIT: {net_s3:+.2f} USDT ({net_s3:+.2f}%)  --> Wallet: ${capital+net_s3:.2f}",
+        "",
+        f"[SCENARIO 4] Shallow Fill -> 50% Exit @ BE ({_fmt_num(p_be)}) + 50% Exit @ TP1 ({_fmt_num(p_tp1)})",
+        f"  • Only 61.8% touched, $50 cash remains safe in wallet",
+        f"  • Gross: {gross_s4:+.2f} USDT | Fees: -{fee_s4:.2f} USDT",
+        f"  • NET PROFIT: {net_s4:+.2f} USDT ({net_s4:+.2f}%)  --> Wallet: ${capital+net_s4:.2f}",
+        "",
+        "[SCENARIO 5] Full Fill -> 70% Exit @ TP1 + 30% Exit @ TP2 (Runner Mode)",
+        f"  • Gross: {gross_s5:+.2f} USDT | Fees: -{fee_s5:.2f} USDT",
+        f"  • NET PROFIT: {net_s5:+.2f} USDT ({net_s5:+.2f}%)  --> Wallet: ${capital+net_s5:.2f}",
+        "",
+        "[SCENARIO 6] Shallow Fill -> 70% Exit @ TP1 + 30% Exit @ TP2 (Runner Mode)",
+        f"  • Gross: {gross_s6:+.2f} USDT | Fees: -{fee_s6:.2f} USDT",
+        f"  • NET PROFIT: {net_s6:+.2f} USDT ({net_s6:+.2f}%)  --> Wallet: ${capital+net_s6:.2f}",
+        "",
+        f"[SCENARIO 7] Full Fill -> 50% Exit @ BE ({_fmt_num(p_be)}) -> Retrace to Avg Entry SL",
+        f"  • Market hit 55% BE, locked 50% gain, then returned to Entry (Risk-Free Exit)",
+        f"  • Gross: {gross_s7:+.2f} USDT | Fees: -{fee_s7:.2f} USDT",
+        f"  • NET PROFIT: {net_s7:+.2f} USDT ({net_s7:+.2f}%)  --> Wallet: ${capital+net_s7:.2f}",
+        "",
+        f"[SCENARIO 8] Shallow Fill -> 50% Exit @ BE ({_fmt_num(p_be)}) -> Retrace to Entry SL",
+        f"  • Only 61.8% touched, locked 50% at BE, then returned to Entry (Risk-Free Exit)",
+        f"  • Gross: {gross_s8:+.2f} USDT | Fees: -{fee_s8:.2f} USDT",
+        f"  • NET PROFIT: {net_s8:+.2f} USDT ({net_s8:+.2f}%)  --> Wallet: ${capital+net_s8:.2f}",
+        "",
+        f"[SCENARIO 9] WORST CASE: Full Fill ($100) -> Direct Stop Loss Hit ({_fmt_num(p_sl)})",
+        f"  • Gross: {gross_s9:+.2f} USDT | Fees: -{fee_s9:.2f} USDT",
+        f"  • NET LOSS:   {net_s9:+.2f} USDT ({net_s9:+.2f}%)  --> Wallet: ${capital+net_s9:.2f}",
+        "",
+        f"[SCENARIO 10] WORST CASE: Shallow Fill ($50) -> Direct Stop Loss Hit ({_fmt_num(p_sl)})",
+        f"  • Gross: {gross_s10:+.2f} USDT | Fees: -{fee_s10:.2f} USDT",
+        f"  • NET LOSS:   {net_s10:+.2f} USDT ({net_s10:+.2f}%)  --> Wallet: ${capital+net_s10:.2f}",
+        "================================================================================",
+    ]
+    return "\n".join(lines)
+
+
+def send_instant_signal_alert(zone: dict) -> bool:
+    try:
+        from email_sender import send_email
+        body = generate_instant_signal_alert_text(zone)
+        coin = zone.get("coin", "UNKNOWN")
+        tf = zone.get("timeframe", "1h")
+        score = zone.get("score", 0)
+        subject = f"🚨 TRADE SIGNAL ALERT: {coin} [{tf}] — Score {score}/100"
+        return send_email(subject, body)
+    except Exception as e:
+        logger.error(f"Failed to send instant signal alert for {zone.get('coin')}: {e}")
+        return False

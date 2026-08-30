@@ -27,6 +27,9 @@ logger = logging.getLogger("trading_scanner")
 
 
 def check_and_send_reports():
+    if not getattr(config, "ENABLE_SCHEDULED_REPORTS", False):
+        return
+
     if is_first_ever_run():
         logger.info("First run initialization — sending Welcome Email.")
         send_email("Trading System — Intraday Fibonacci Engine Started", generate_welcome_email())

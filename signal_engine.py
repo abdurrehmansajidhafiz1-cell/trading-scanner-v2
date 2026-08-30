@@ -283,8 +283,11 @@ def analyze(coin: str, timeframe: str, df: pd.DataFrame, df_daily: pd.DataFrame,
     target_price = result.swing_low + (diff * config.TP1_SWING_HIGH_FACTOR)
     tp2_price = result.swing_low + (config.TP2_EXTENSION * diff)
 
+    result.entry_1 = result.swing_high - 0.618 * diff
+    result.entry_2 = result.swing_high - 0.786 * diff
     result.stop_price = stop_price
     result.target_price = target_price
+    result.tp1_price = target_price
     result.tp2_price = tp2_price
 
     valid_candidates = []

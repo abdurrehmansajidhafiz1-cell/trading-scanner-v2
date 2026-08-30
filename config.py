@@ -122,7 +122,7 @@ MAX_CONSEC_LOSSES_BEFORE_PAUSE = 3  # 3 consecutive losses ke baad pause
 CONSEC_LOSS_PAUSE_HOURS = 36        # 36 ghante ka cooling period
 
 # Real Execution Cost Modeling (Binance)
-BINANCE_FEE_PCT = 0.075      # 0.075% fee per side (with BNB discount)
+BINANCE_FEE_PCT = 0.075      # 0.075% fee per side (with standard/BNB spot rate)
 SLIPPAGE_PCT = 0.04          # 0.04% realistic slippage assumption
 
 # Portfolio Exposure Limit (Anti-Cascade Dump Protection)
@@ -157,10 +157,14 @@ BTC_MAX_1H_DROP_PCT = 2.0        # Block altcoin longs if BTC drops > 2% in 1 ho
 BTC_REQUIRE_EMA_TREND = True     # Block altcoin longs if BTC is below EMA 50 (Bear regime)
 
 # ============================================================
-# SYSTEM & EVALUATION WINDOW
+# SYSTEM & EVALUATION WINDOW (1-Week Live System Starting 5:00 PM PKT)
 # ============================================================
-SYSTEM_START_DATETIME = os.environ.get("SYSTEM_START_DATETIME", None)
-EVALUATION_WINDOW_DAYS = 30      # 30-day rolling evaluation window (1-Month Plan)
+SYSTEM_START_DATETIME = os.environ.get("SYSTEM_START_DATETIME", "2026-08-30 17:00:00")
+EVALUATION_WINDOW_DAYS = 7       # 1-Week Live Evaluation System
+
+# Real-Time Instant Alerts & Scheduled Reporting
+ENABLE_INSTANT_ALERTS = True     # Har naye qualifying zone par foran email alert
+ENABLE_SCHEDULED_REPORTS = False  # 12-hour routine morning/evening reports band (as requested)
 
 # ============================================================
 # LOGGING & DATABASE
