@@ -74,8 +74,9 @@ def _resolve_zone(zone: dict, df_after_entry: pd.DataFrame, tf_cfg: dict) -> dic
     touched = False
     touched_at = None
     be_moved = False
-    current_stop = zone["stop_price"]
-    age_limit = tf_cfg["max_structure_age_bars"] * 3
+    max_holding_hours = getattr(config, "MAX_HOLDING_HOURS", 24)
+    hours_to_bars = {"30m": int(max_holding_hours * 2), "1h": int(max_holding_hours), "4h": max(1, int(max_holding_hours / 4))}
+    age_limit = hours_to_bars.get(zone.get("timeframe", "1h"), 24)
     be_ratio = getattr(config, "BREAKEVEN_TRIGGER_RATIO", 0.55)
     be_trigger = zone["entry_price"] + (zone["target_price"] - zone["entry_price"]) * be_ratio
 

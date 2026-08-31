@@ -121,7 +121,10 @@ def resolve_pending_zones(exchange, coin: str, timeframe: str):
         if resolved:
             continue
 
-        age_limit = tf_cfg["max_structure_age_bars"] * 3
+        # Strict 24-hour timeout & expiry limit (30m: 48 bars, 1h: 24 bars, 4h: 6 bars)
+        max_holding_hours = getattr(config, "MAX_HOLDING_HOURS", 24)
+        hours_to_bars = {"30m": int(max_holding_hours * 2), "1h": int(max_holding_hours), "4h": max(1, int(max_holding_hours / 4))}
+        age_limit = hours_to_bars.get(timeframe, 24)
 
         if not touched:
             if len(relevant_candles) > age_limit:

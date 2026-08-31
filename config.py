@@ -80,6 +80,9 @@ TP2_EXTENSION = 1.618        # Extended Take Profit (TP2) @ 1.618 Fib Extension
 ENABLE_BREAKEVEN_SL = True
 BREAKEVEN_TRIGGER_RATIO = 0.55  # 55% target move hone par SL entry pe shift (risk-free runner)
 
+# Strict 24-Hour Trade Expiry & Timeout Limits
+MAX_HOLDING_HOURS = 24          # Max 24 ghante tak trade active/pending reh sakti hai, uske baad auto-close
+
 # ============================================================
 # MANDATORY QUALITY FILTERS (Hard Filters — Score se alag)
 # ============================================================
