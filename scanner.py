@@ -208,6 +208,43 @@ def process_coin_timeframe(exchange, coin: str, timeframe: str, start_datetime: 
         checked_at = str(candle_time)
 
         if result.qualifies:
+            # 1. Daily Zone Cap Check (Max 3 per day)
+            today_str = str(candle_time)[:10]
+            if getattr(config, "ENABLE_DAILY_ZONE_CAP", True):
+                daily_count = db.get_daily_zone_count(today_str)
+                max_daily = getattr(config, "MAX_SAME_DAY_ZONES", 3)
+                if daily_count >= max_daily:
+                    result.qualifies = False
+                    result.reject_reason_code = "DAILY_ZONE_CAP_REACHED"
+                    result.reject_reason_detail = f"Aaj ke din ki maximum {max_daily} trades poori ho chuki hain (Daily Cap)"
+
+            # 2. Daily Circuit Breaker Check (Max 2 losses per day)
+            if result.qualifies and getattr(config, "ENABLE_DAILY_CIRCUIT_BREAKER", True):
+                loss_count = db.get_daily_realized_loss_count(today_str)
+                if loss_count >= 2:
+                    result.qualifies = False
+                    result.reject_reason_code = "DAILY_CIRCUIT_BREAKER_TRIGGERED"
+                    result.reject_reason_detail = f"Aaj {loss_count} losses hone ki wajah se Circuit Breaker active hai — trading paused for today"
+
+            # 3. Max Concurrent Active Trades Check (Anti-Correlation Guard)
+            if result.qualifies:
+                active_count = db.get_active_zones_count()
+                max_active = getattr(config, "MAX_ACTIVE_TRADES", 3)
+                if active_count >= max_active:
+                    result.qualifies = False
+                    result.reject_reason_code = "MAX_ACTIVE_TRADES_REACHED"
+                    result.reject_reason_detail = f"Portfolio par pehle se {active_count} trades active hain (Max {max_active} allowed) — correlation risk defense"
+
+            # 4. Consecutive Loss Pause Check
+            if result.qualifies and getattr(config, "ENABLE_CONSEC_LOSS_PAUSE", True):
+                consec_losses = db.get_recent_consecutive_losses()
+                max_consec = getattr(config, "MAX_CONSEC_LOSSES_BEFORE_PAUSE", 3)
+                if consec_losses >= max_consec:
+                    result.qualifies = False
+                    result.reject_reason_code = "CONSEC_LOSS_PAUSE"
+                    result.reject_reason_detail = f"{consec_losses} consecutive losses ke baad cooling period active hai"
+
+        if result.qualifies:
             already_recorded = prev_state and prev_state["last_recorded_zone_price"] == result.best_zone_price
             structure_after_start = result.structure_created_at and result.structure_created_at >= start_datetime
 

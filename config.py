@@ -127,7 +127,10 @@ SLIPPAGE_PCT = 0.04          # 0.04% realistic slippage assumption
 USDT_PKR_RATE = float(os.environ.get("USDT_PKR_RATE", 280.0))  # 1 USDT = 280 PKR for PKR Playbook
 
 # Portfolio Exposure Limit (Anti-Cascade Dump Protection)
-MAX_ACTIVE_TRADES = int(os.environ.get("MAX_ACTIVE_TRADES", 4))
+MAX_ACTIVE_TRADES = int(os.environ.get("MAX_ACTIVE_TRADES", 3))  # Max 3 concurrent active trades
+
+# Sunday Shield (Weekly Close & Asian Open Noise Defense)
+ENABLE_SUNDAY_SHIELD = True
 
 # ============================================================
 # DYNAMIC BINANCE LIQUIDITY UNIVERSE ENGINE
@@ -151,10 +154,12 @@ FIXED_COIN_UNIVERSE = [
 UNIVERSE_SIZE = len(FIXED_COIN_UNIVERSE)
 
 # ============================================================
-# SAFEGUARDS & BTC REGIME FILTER
+# SAFEGUARDS & SMART BTC REGIME FILTER
 # ============================================================
 ENABLE_BTC_REGIME_FILTER = True
-BTC_MAX_1H_DROP_PCT = 2.0        # Block altcoin longs if BTC drops > 2% in 1 hour
+BTC_MAX_1H_DROP_PCT = 1.5        # Block altcoin longs if BTC drops > 1.5% in 1 hour
+BTC_MAX_4H_DROP_PCT = 3.0        # Block altcoin longs if BTC drops > 3.0% in 4 hours (Slow bleed dump defense)
+BTC_MIN_RSI_1H = 40.0            # Block altcoin longs if BTC 1H RSI < 40 (Bear momentum)
 BTC_REQUIRE_EMA_TREND = True     # Block altcoin longs if BTC is below EMA 50 (Bear regime)
 
 # ============================================================

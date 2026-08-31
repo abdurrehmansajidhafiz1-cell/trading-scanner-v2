@@ -100,17 +100,36 @@ def check_altcoin_macro_trend(df_daily: pd.DataFrame | None) -> tuple[bool, str]
 
 def check_btc_regime_ok(df_btc: pd.DataFrame | None, df_btc_daily: pd.DataFrame | None = None) -> tuple[bool, str]:
     """
-    BTC Market Regime Safeguard —
-    1. BTC sharp drop check (1H > 2.0%)
-    2. BTC Daily EMA 50 trend alignment (prevents taking altcoin longs during market downtrend)
+    Enhanced BTC Market Regime Safeguard —
+    1. BTC fast drop check (1H drop > config.BTC_MAX_1H_DROP_PCT)
+    2. BTC 4H slow-bleed multi-candle drop check (> config.BTC_MAX_4H_DROP_PCT)
+    3. BTC 1H RSI dump momentum check (< config.BTC_MIN_RSI_1H)
+    4. BTC Daily / 1H EMA 50 trend alignment
     """
     if df_btc is not None and len(df_btc) >= 5:
         last_close = df_btc["close"].iloc[-1]
-        prev_close = df_btc["close"].iloc[-4]  # 4-bar window
-        drop_pct = (prev_close - last_close) / prev_close * 100
-        if drop_pct >= config.BTC_MAX_1H_DROP_PCT:
-            return False, f"BTC 1H drop {drop_pct:.2f}% (max {config.BTC_MAX_1H_DROP_PCT}% allowed)"
-    
+
+        # 1-Hour Drop check
+        prev_1h = df_btc["close"].iloc[-2] if len(df_btc) >= 2 else last_close
+        drop_1h = (prev_1h - last_close) / prev_1h * 100
+        max_1h = getattr(config, "BTC_MAX_1H_DROP_PCT", 1.5)
+        if drop_1h >= max_1h:
+            return False, f"BTC 1H sharp drop {drop_1h:.2f}% (max {max_1h}% allowed)"
+
+        # 4-Hour Cumulative Drop check (Slow bleed dump defense)
+        prev_4h = df_btc["close"].iloc[-5] if len(df_btc) >= 5 else last_close
+        drop_4h = (prev_4h - last_close) / prev_4h * 100
+        max_4h = getattr(config, "BTC_MAX_4H_DROP_PCT", 3.0)
+        if drop_4h >= max_4h:
+            return False, f"BTC 4H cumulative drop {drop_4h:.2f}% (max {max_4h}% allowed) — slow bleed market dump"
+
+        # 1H RSI Dump Momentum check
+        min_rsi = getattr(config, "BTC_MIN_RSI_1H", 40.0)
+        if len(df_btc) >= 15:
+            btc_rsi = rsi(df_btc["close"], 14).iloc[-1]
+            if btc_rsi < min_rsi:
+                return False, f"BTC 1H RSI ({btc_rsi:.1f}) < {min_rsi} — aggressive bearish market momentum"
+
     if getattr(config, "BTC_REQUIRE_EMA_TREND", False):
         if df_btc_daily is not None and len(df_btc_daily) >= config.EMA_LENGTH:
             btc_daily_close = df_btc_daily["close"].iloc[-1]
@@ -185,6 +204,22 @@ def analyze(coin: str, timeframe: str, df: pd.DataFrame, df_daily: pd.DataFrame,
             result.reject_reason_code = "ALTCOIN_BEAR_TREND"
             result.reject_reason_detail = altcoin_detail
             return result
+
+    # --- Sunday Shield Filter (Weekly Close & Asian Open Noise Defense) ---
+    min_required_score = tf_cfg["min_score"]
+    if getattr(config, "ENABLE_SUNDAY_SHIELD", True):
+        last_candle_time = df["timestamp"].iloc[-1]
+        try:
+            ts = pd.Timestamp(last_candle_time)
+            # Sunday 18:00 UTC to Monday 04:00 UTC (11:00 PM PKT Sun to 09:00 AM PKT Mon)
+            if (ts.dayofweek == 6 and ts.hour >= 18) or (ts.dayofweek == 0 and ts.hour < 4):
+                if timeframe == "30m":
+                    result.reject_reason_code = "SUNDAY_SHIELD_NOISE"
+                    result.reject_reason_detail = "Sunday night / Monday weekly open noise session mein 30m trades blocked hain"
+                    return result
+                min_required_score = max(min_required_score, 90)
+        except Exception:
+            pass
 
     # --- Adaptive pivot length + locked swing structure ---
     pivot_len = compute_adaptive_pivot_len(df)
@@ -311,7 +346,7 @@ def analyze(coin: str, timeframe: str, df: pd.DataFrame, df_daily: pd.DataFrame,
         }
         all_evaluated.append(candidate)
 
-        if score >= tf_cfg["min_score"] and rr >= config.MIN_RR:
+        if score >= min_required_score and rr >= config.MIN_RR:
             valid_candidates.append(candidate)
 
     if valid_candidates:

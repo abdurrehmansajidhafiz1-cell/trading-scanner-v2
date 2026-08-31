@@ -247,6 +247,44 @@ def get_all_zones():
         return [dict(r) for r in cur.fetchall()]
 
 
+def get_daily_zone_count(date_str: str) -> int:
+    """Returns count of zones created on the given date (YYYY-MM-DD)."""
+    with db_cursor() as cur:
+        cur.execute("SELECT COUNT(*) as count FROM zones WHERE created_at LIKE ?", (f"{date_str}%",))
+        row = cur.fetchone()
+        return row["count"] if row else 0
+
+
+def get_daily_realized_loss_count(date_str: str) -> int:
+    """Returns count of resolved losses on the given date (YYYY-MM-DD)."""
+    with db_cursor() as cur:
+        cur.execute("SELECT COUNT(*) as count FROM zones WHERE status='LOSS' AND resolved_at LIKE ?", (f"{date_str}%",))
+        row = cur.fetchone()
+        return row["count"] if row else 0
+
+
+def get_active_zones_count() -> int:
+    """Returns count of currently PENDING or ACTIVE trades across portfolio."""
+    with db_cursor() as cur:
+        cur.execute("SELECT COUNT(*) as count FROM zones WHERE status IN ('PENDING', 'ACTIVE')")
+        row = cur.fetchone()
+        return row["count"] if row else 0
+
+
+def get_recent_consecutive_losses() -> int:
+    """Returns count of recent consecutive losses."""
+    with db_cursor() as cur:
+        cur.execute("SELECT status FROM zones WHERE status IN ('WIN', 'LOSS', 'BREAKEVEN') ORDER BY resolved_at DESC LIMIT 10")
+        rows = cur.fetchall()
+        consec = 0
+        for r in rows:
+            if r["status"] == "LOSS":
+                consec += 1
+            else:
+                break
+        return consec
+
+
 def update_zone_post_sl_info(zone_id: int, behavior: str, details: str):
     """Loss trade ke baad price action diagnosis (Fakeout vs Dump) save karta hai."""
     with db_cursor() as cur:
