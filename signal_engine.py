@@ -318,6 +318,20 @@ def analyze(coin: str, timeframe: str, df: pd.DataFrame, df_daily: pd.DataFrame,
     target_price = result.swing_low + (diff * config.TP1_SWING_HIGH_FACTOR)
     tp2_price = result.swing_low + (config.TP2_EXTENSION * diff)
 
+    # --- Structure Invalidation Guard ---
+    # Agar current candle ka Low ya Close already Swing Low ya Stop Loss se
+    # neechay chala gaya hai, to yeh setup invalidated hai — alert nahi bhejna
+    current_low = df["low"].iloc[-1]
+    current_close = df["close"].iloc[-1]
+    if current_low <= stop_price or current_close <= result.swing_low:
+        result.reject_reason_code = "STRUCTURE_ALREADY_BROKEN"
+        result.reject_reason_detail = (
+            f"Current candle (Low: {current_low:.2f}, Close: {current_close:.2f}) "
+            f"ne Swing Low ({result.swing_low:.2f}) ya Stop Loss ({stop_price:.2f}) "
+            f"ko already break kar diya — structure invalidated, stale alert blocked"
+        )
+        return result
+
     result.entry_1 = result.swing_high - 0.618 * diff
     result.entry_2 = result.swing_high - 0.786 * diff
     result.stop_price = stop_price
