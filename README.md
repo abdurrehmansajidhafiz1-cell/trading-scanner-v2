@@ -13,6 +13,33 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 
 ## 📊 Live System Status & Dashboard
 
+<!-- LIVE_DASHBOARD_START -->
+> **Last Engine Sync:** `2026-09-03 12:03 PM PKT` (`2026-09-03 07:03 UTC`) | **Cycle:** `Day 1 of 15`
+
+### 📈 Live Performance Key Metrics
+
+| Metric | Value | Status Indicator |
+|---|---|---|
+| **Production Phase** | `Day 1 of 15` | 🟢 Active Tracking |
+| **Total Setups Qualified** | `0` | 🎯 High Confluence (>=75/100) |
+| **Resolved Trades** | `0` (0W / 0L / 0BE) | ⚖️ Real Execution Cost Modeled |
+| **Cumulative Win Rate** | **`0.0%`** | 🟡 Calibrating |
+| **Net Realized P&L** | **`+0.00 R`** | 🟢 Positive Expectancy |
+| **Profit Factor** | **`1.00`** | Target: > 1.50 |
+| **Active / Pending Setups** | `0` open positions | Max 3 Concurrent Allowed |
+
+### 🔴 Active & Monitored Trades Live Tracker
+
+> *Abhi market mein koi active/pending trade nahi hai — engine har 30 minute baad high-confluence OTE setups dhoond raha hai.*
+
+### 📜 Recent Closed Trades Ledger (Day 1 se Aaj Tak)
+
+> *Abhi tak koi trade close nahi hui hai (Fresh 15-day cycle active).*
+
+<!-- LIVE_DASHBOARD_END -->
+
+
+
 | Metric | Current Production State | Specifications |
 |---|---|---|
 | **Active Production Phase** | **15-Day Fresh Forward Evaluation** | Starting `2026-09-03 09:30 AM PKT` |

@@ -97,6 +97,13 @@ def main():
         logger.error(f"Report/email error: {e}")
         logger.error(traceback.format_exc())
 
+    try:
+        from dashboard_generator import update_readme_dashboard
+        update_readme_dashboard()
+        logger.info("Live README dashboard updated successfully.")
+    except Exception as e:
+        logger.warning(f"Dashboard update error: {e}")
+
     logger.info("=== Scan run complete ===")
 
     if scan_failed:
