@@ -267,7 +267,9 @@ def process_coin_timeframe(exchange, coin: str, timeframe: str, start_datetime: 
                             f"@ {result.best_zone_price:.4f} (Tier1: {result.entry_1:.4f}, Tier2: {result.entry_2:.4f}), "
                             f"score {result.best_score}, R:R 1:{result.actual_rr:.2f} (candle: {checked_at})")
 
-                if getattr(config, "ENABLE_INSTANT_ALERTS", True):
+                # Instant email alert sirf latest live candle par jana chahiye
+                is_latest_candle = (i == new_indices[-1])
+                if getattr(config, "ENABLE_INSTANT_ALERTS", True) and is_latest_candle:
                     from reporting import send_instant_signal_alert
                     zone_dict = {
                         "id": zone_id, "coin": coin, "timeframe": timeframe,

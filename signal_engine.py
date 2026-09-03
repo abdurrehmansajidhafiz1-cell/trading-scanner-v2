@@ -323,12 +323,24 @@ def analyze(coin: str, timeframe: str, df: pd.DataFrame, df_daily: pd.DataFrame,
     # neechay chala gaya hai, to yeh setup invalidated hai — alert nahi bhejna
     current_low = df["low"].iloc[-1]
     current_close = df["close"].iloc[-1]
+    current_high = df["high"].iloc[-1]
     if current_low <= stop_price or current_close <= result.swing_low:
         result.reject_reason_code = "STRUCTURE_ALREADY_BROKEN"
         result.reject_reason_detail = (
             f"Current candle (Low: {current_low:.2f}, Close: {current_close:.2f}) "
             f"ne Swing Low ({result.swing_low:.2f}) ya Stop Loss ({stop_price:.2f}) "
             f"ko already break kar diya — structure invalidated, stale alert blocked"
+        )
+        return result
+
+    # --- Target Already Hit Guard ---
+    # Agar price pehle hi TP1 hit kar chuki hai ya current candle Target se upar hai,
+    # to yeh trade stale/finished hai — naya alert nahi bhejna
+    if current_high >= target_price or current_close >= target_price:
+        result.reject_reason_code = "TARGET_ALREADY_HIT"
+        result.reject_reason_detail = (
+            f"Current candle (High: {current_high:.2f}, Close: {current_close:.2f}) "
+            f"already reached or exceeded Target 1 ({target_price:.2f}) — trade setup already completed"
         )
         return result
 
