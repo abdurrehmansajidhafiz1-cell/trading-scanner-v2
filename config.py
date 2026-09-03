@@ -12,28 +12,22 @@ import os
 TIMEZONE = "Asia/Karachi"  # Pakistan Time (PKT, UTC+5, no DST)
 
 # ============================================================
-# TIMEFRAMES SCAN KARNI HAIN
+# TIMEFRAMES SCAN KARNI HAIN (30m & 1h Intraday Only)
 # ============================================================
-TIMEFRAMES = ["4h", "1h", "30m"]
+TIMEFRAMES = ["1h", "30m"]
 
 TF_SETTINGS = {
-    "4h": {
-        "max_structure_age_bars": 24,      # ~4 din
-        "min_score": 70,                   # 4H high-reliability score threshold
-        "zone_tolerance_pct": 0.4,
-        "intermediate_tf": None,           # sirf Daily/4H check
-    },
     "1h": {
         "max_structure_age_bars": 48,      # ~2 din
         "min_score": 80,                   # 1H quality threshold (High Confluence)
         "zone_tolerance_pct": 0.3,
-        "intermediate_tf": "4h",           # 4H + 1H check
+        "intermediate_tf": "4h",           # Daily + 4H alignment check
     },
     "30m": {
         "max_structure_age_bars": 40,      # ~20 ghante
         "min_score": 75,
         "zone_tolerance_pct": 0.25,
-        "intermediate_tf": "1h",           # 4H + 1H + 30M check
+        "intermediate_tf": "1h",           # Daily + 1H alignment check
     },
 }
 
@@ -166,14 +160,15 @@ BTC_MIN_RSI_1H = 40.0            # Block altcoin longs if BTC 1H RSI < 40 (Bear 
 BTC_REQUIRE_EMA_TREND = True     # Block altcoin longs if BTC is below EMA 50 (Bear regime)
 
 # ============================================================
-# SYSTEM & EVALUATION WINDOW (1-Week Live System Starting 5:00 PM PKT)
+# SYSTEM & EVALUATION WINDOW (15-Day Live System Starting Sep 3, 2026 09:30 AM PKT)
 # ============================================================
-SYSTEM_START_DATETIME = os.environ.get("SYSTEM_START_DATETIME", "2026-08-30 17:00:00")
-EVALUATION_WINDOW_DAYS = 7       # 1-Week Live Evaluation System
+SYSTEM_START_DATETIME = os.environ.get("SYSTEM_START_DATETIME", "2026-09-03 09:30:00")
+EVALUATION_WINDOW_DAYS = 15      # 15-Day Fresh Live Evaluation System
+SCHEDULED_REPORT_INTERVAL_HOURS = 12  # Har 12 ghante baad subah 6 AM aur shaam 6 PM PKT report
 
 # Real-Time Instant Alerts & Scheduled Reporting
 ENABLE_INSTANT_ALERTS = True     # Har naye qualifying zone par foran email alert
-ENABLE_SCHEDULED_REPORTS = False  # 12-hour routine morning/evening reports band (as requested)
+ENABLE_SCHEDULED_REPORTS = True   # 12-hour routine morning/evening reports active (06:00 AM & 06:00 PM PKT)
 
 # ============================================================
 # LOGGING & DATABASE

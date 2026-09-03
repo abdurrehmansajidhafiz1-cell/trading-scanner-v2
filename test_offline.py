@@ -47,10 +47,10 @@ def make_synthetic_ohlcv(n=350, seed=7, uptrend=True):
 
 def test_signal_engine():
     print("=== Testing signal_engine.analyze() with Intraday Fib & OTE ===")
-    df_4h = make_synthetic_ohlcv(n=350, uptrend=True)
+    df_1h = make_synthetic_ohlcv(n=350, uptrend=True)
     df_daily = make_synthetic_ohlcv(n=250, seed=3, uptrend=True)
 
-    result = analyze("BTC/USDT", "4h", df_4h, df_daily, None, None)
+    result = analyze("BTC/USDT", "1h", df_1h, df_daily, None, None)
 
     print(f"Valid structure: {result.valid_structure}")
     print(f"Swing: {result.swing_low} -> {result.swing_high}")
