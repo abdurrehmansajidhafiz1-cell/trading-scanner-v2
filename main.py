@@ -22,6 +22,7 @@ from reporting import (
 )
 from email_sender import send_email, send_error_alert
 import timezone_utils as tz
+import config
 
 logger = logging.getLogger("trading_scanner")
 

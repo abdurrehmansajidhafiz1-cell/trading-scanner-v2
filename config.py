@@ -5,6 +5,11 @@ ATR-based Stop Losses, Dual Take-Profit targets, and 15-Day Rolling Evaluation.
 """
 
 import os
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 # ============================================================
 # TIMEZONE
