@@ -31,6 +31,11 @@ def _create_binance_exchange(base_url: str):
     exchange = ccxt.binance({
         "enableRateLimit": True,
         "timeout": 30000,
+        "options": {
+            "defaultType": "spot",
+            "fetchMarkets": ["spot"],
+            "fetchCurrencies": False,
+        },
         "headers": {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         },
