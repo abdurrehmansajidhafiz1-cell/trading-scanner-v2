@@ -37,16 +37,21 @@ def check_and_send_reports():
         return
 
     # Dual Reports (06:00 AM PKT & 06:00 PM PKT)
+    smtp_configured = bool(config.SMTP_USER and config.SMTP_PASSWORD and config.REPORT_EMAIL_TO)
     for period_key, period_label, start_dt, end_dt in due_intraday_reports():
         logger.info(f"{period_label} due ({tz.format_both(start_dt)} -> {tz.format_both(end_dt)}), generating report...")
         report_text = generate_report(period_label, start_dt, end_dt, include_cumulative=True)
         subject = f"Trading System — {period_label} ({tz.format_pkt(end_dt, '%Y-%m-%d %I:%M %p')})"
-        sent = send_email(subject, report_text)
-        if sent:
-            mark_boundary_sent(end_dt)
+        if smtp_configured:
+            sent = send_email(subject, report_text)
+            if sent:
+                mark_boundary_sent(end_dt)
+            else:
+                logger.error(f"{period_label} email send failed — boundary not advanced, will retry next run.")
+                break
         else:
-            logger.error(f"{period_label} email send failed — boundary not advanced, will retry next run.")
-            break
+            logger.warning(f"{period_label} generated, lekin SMTP Secrets (SMTP_USER / SMTP_PASSWORD / REPORT_EMAIL_TO) missing hone ki wajah se email dispatch skip ho gaya. Boundary advance kar di gayi hai.")
+            mark_boundary_sent(end_dt)
 
     # Periodic 3-Day Diagnostic, 15-Day Progress & 30-Day Evaluation Reports
     periods = [
@@ -65,11 +70,15 @@ def check_and_send_reports():
                 report_text = generate_report(period_label, start_dt, end_dt, include_cumulative=True)
 
             subject = f"Trading System — {period_label} ({tz.format_pkt(end_dt, '%Y-%m-%d')})"
-            sent = send_email(subject, report_text)
-            if sent:
-                mark_period_sent(period_key, end_dt)
+            if smtp_configured:
+                sent = send_email(subject, report_text)
+                if sent:
+                    mark_period_sent(period_key, end_dt)
+                else:
+                    logger.error(f"{period_label} email send failed.")
             else:
-                logger.error(f"{period_label} email send failed.")
+                logger.warning(f"{period_label} generated, lekin SMTP Secrets missing hone ki wajah se email dispatch skip ho gaya.")
+                mark_period_sent(period_key, end_dt)
 
 
 def main():

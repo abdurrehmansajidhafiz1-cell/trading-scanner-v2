@@ -92,7 +92,7 @@ def resolve_pending_zones(exchange, coin: str, timeframe: str):
                 # Do not evaluate TP/SL resolution on the exact candle where entry was confirmed
                 continue
 
-            # Step 2: Trade is ACTIVE -> Track Breakeven, Take-Profit, and Stop-Loss
+            # Step 2: Trade is ACTIVE -> Track Breakeven, Take-Profit (TP1 & TP2), and Stop-Loss
             if touched:
                 # 55% Breakeven SL Activation
                 if getattr(config, "ENABLE_BREAKEVEN_SL", True) and not be_moved:
@@ -100,7 +100,11 @@ def resolve_pending_zones(exchange, coin: str, timeframe: str):
                         be_moved = True
                         current_stop = zone["entry_price"]
 
-                if candle["high"] >= zone["target_price"]:
+                tp1_target = zone.get("tp1_price") or zone["target_price"]
+                tp2_target = zone.get("tp2_price") or (zone["target_price"] * 1.05)
+
+                # Check if TP2 or TP1 reached
+                if candle["high"] >= tp2_target or candle["high"] >= tp1_target:
                     db.update_zone_status(zone["id"], "WIN", touched_at=touched_at, resolved_at=candle_ts_str)
                     resolved = True
                     break
@@ -286,6 +290,10 @@ def process_coin_timeframe(exchange, coin: str, timeframe: str, start_datetime: 
                     if sent:
                         db.mark_zone_alert_sent(zone_id)
                         logger.info(f"Instant trade signal alert sent for {coin} [{timeframe}]!")
+                    else:
+                        from engine.signal_queue import push_signal
+                        push_signal(zone_dict)
+                        logger.warning(f"Instant alert dispatch failed or pending. Pushed {coin} [{timeframe}] to persistent retry queue.")
 
             qualifying.append({
                 "coin": coin, "timeframe": timeframe, "level": result.best_zone_name,
@@ -380,6 +388,15 @@ def scan_once():
         df_btc_daily = fetch_ohlcv(exchange, "BTC/USDT", "1d", limit=100)
     except Exception as e:
         logger.warning(f"BTC data fetch warning: {e}")
+
+    # Step 4-PRE: Process persistent signal queue first
+    try:
+        from engine.signal_queue import process_pending_signals
+        executed_queued = process_pending_signals(exchange)
+        if executed_queued:
+            logger.info(f"Signal queue processed: {len(executed_queued)} setup(s) executed successfully.")
+    except Exception as e_queue:
+        logger.warning(f"Error processing pending signal queue: {e_queue}")
 
     qualifying = []
     zones_qualified_count = 0

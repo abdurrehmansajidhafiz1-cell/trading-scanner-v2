@@ -58,6 +58,16 @@ def fetch_dynamic_binance_universe(exchange=None, limit: int = None) -> list:
 
                 candidates.append((symbol, quote_volume))
 
+            if not candidates:
+                logger.warning("Dynamic tickers return empty or 0 candidates passed filters. Testing individual ticker fallback...")
+                for symbol in config.FIXED_COIN_UNIVERSE[:10]:
+                    try:
+                        t = exchange.fetch_ticker(symbol)
+                        if t and t.get("last"):
+                            candidates.append((symbol, t.get("quoteVolume") or 10000000.0))
+                    except Exception as ex_sym:
+                        logger.debug(f"Individual ticker fallback failed for {symbol}: {ex_sym}")
+
             if candidates:
                 candidates.sort(key=lambda x: x[1], reverse=True)
                 selected = [c[0] for c in candidates[:limit]]
@@ -69,6 +79,9 @@ def fetch_dynamic_binance_universe(exchange=None, limit: int = None) -> list:
 
     # Fallback to Fixed Universe
     result = list(config.FIXED_COIN_UNIVERSE[:limit])
+    if not result:
+        logger.critical("[CRITICAL] Both dynamic tickers and fixed universe are empty! Aborting scan cycle.")
+        raise RuntimeError("No coins available to scan — coin universe completely empty.")
     logger.info(f"Using fixed coin universe fallback: {len(result)} coins.")
     return result
 
