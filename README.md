@@ -14,25 +14,26 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 ## 📊 Live System Status & Dashboard
 
 <!-- LIVE_DASHBOARD_START -->
-> **Last Engine Sync:** `2026-09-06 12:31 AM PKT` (`2026-09-05 19:31 UTC`) | **Cycle:** `Day 3 of 15`
+> **Last Engine Sync:** `2026-09-06 01:01 AM PKT` (`2026-09-05 20:01 UTC`) | **Cycle:** `Day 3 of 15`
 
 ### 📈 Live Performance Key Metrics
 
 | Metric | Value | Status Indicator |
 |---|---|---|
 | **Production Phase** | `Day 3 of 15` | 🟢 Active Tracking |
-| **Total Setups Qualified** | `4` | 🎯 High Confluence (>=75/100) |
+| **Total Setups Qualified** | `5` | 🎯 High Confluence (>=75/100) |
 | **Resolved Trades** | `0` (0W / 0L / 0BE) | ⚖️ Real Execution Cost Modeled |
 | **Cumulative Win Rate** | **`0.0%`** | 🟡 Calibrating |
 | **Net Realized P&L** | **`+0.00 R`** | 🟢 Positive Expectancy |
 | **Profit Factor** | **`1.00`** | Target: > 1.50 |
-| **Active / Pending Setups** | `1` open positions | Max 3 Concurrent Allowed |
+| **Active / Pending Setups** | `2` open positions | Max 3 Concurrent Allowed |
 
 ### 🔴 Active & Monitored Trades Live Tracker
 
 | ID | Coin | TF | Status | Entry 1 (61.8%) | Entry 2 (78.6%) | Stop Loss | Target 1 (TP1) | Target 2 (TP2) | R:R | Created Time (PKT) |
 |---|---|---|---|---|---|---|---|---|---|---|
 | #36 | **ARB/USDT** | `30m` | ⏳ PENDING | `0.1324` | `0.1308` | `0.1265` | `0.1375` | `0.1436` | 1:1.52 | 2026-09-05 12:30 PM PKT |
+| #37 | **NEAR/USDT** | `30m` | ⏳ PENDING | `2.0529` | `1.9887` | `1.8685` | `2.2699` | `2.5251` | 1:2.34 | 2026-09-05 05:00 PM PKT |
 
 ### 📜 Recent Closed Trades Ledger (Day 1 se Aaj Tak)
 
