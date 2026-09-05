@@ -14,7 +14,7 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 ## 📊 Live System Status & Dashboard
 
 <!-- LIVE_DASHBOARD_START -->
-> **Last Engine Sync:** `2026-09-05 06:00 AM PKT` (`2026-09-05 01:00 UTC`) | **Cycle:** `Day 2 of 15`
+> **Last Engine Sync:** `2026-09-05 06:30 AM PKT` (`2026-09-05 01:30 UTC`) | **Cycle:** `Day 2 of 15`
 
 ### 📈 Live Performance Key Metrics
 
@@ -26,19 +26,19 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 | **Cumulative Win Rate** | **`0.0%`** | 🟡 Calibrating |
 | **Net Realized P&L** | **`+0.00 R`** | 🟢 Positive Expectancy |
 | **Profit Factor** | **`1.00`** | Target: > 1.50 |
-| **Active / Pending Setups** | `2` open positions | Max 3 Concurrent Allowed |
+| **Active / Pending Setups** | `1` open positions | Max 3 Concurrent Allowed |
 
 ### 🔴 Active & Monitored Trades Live Tracker
 
 | ID | Coin | TF | Status | Entry 1 (61.8%) | Entry 2 (78.6%) | Stop Loss | Target 1 (TP1) | Target 2 (TP2) | R:R | Created Time (PKT) |
 |---|---|---|---|---|---|---|---|---|---|---|
-| #33 | **BNB/USDT** | `30m` | ⏳ PENDING | `699.3152` | `691.0009` | `676.2747` | `727.4255` | `760.4848` | 1:2.47 | 2026-09-04 05:30 AM PKT |
 | #35 | **SPCXB/USDT** | `30m` | ⏳ PENDING | `144.6432` | `142.8255` | `139.7922` | `150.7890` | `158.0168` | 1:2.63 | 2026-09-04 10:00 AM PKT |
 
 ### 📜 Recent Closed Trades Ledger (Day 1 se Aaj Tak)
 
 | ID | Coin | TF | Result | Entry Price | Target 1 | Stop Loss | R:R Realized | Resolved Time (PKT) |
 |---|---|---|---|---|---|---|---|---|
+| #33 | **BNB/USDT** | `30m` | ⚪ EXPIRED | `691.0009` | `727.4255` | `676.2747` | 1:2.47 | 2026-09-05 06:30 AM PKT |
 | #34 | **UNI/USDT** | `30m` | ⚪ EXPIRED | `5.8235` | `6.4682` | `5.4931` | 1:1.95 | 2026-09-05 03:30 AM PKT |
 
 <!-- LIVE_DASHBOARD_END -->
