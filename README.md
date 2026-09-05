@@ -14,7 +14,7 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 ## 📊 Live System Status & Dashboard
 
 <!-- LIVE_DASHBOARD_START -->
-> **Last Engine Sync:** `2026-09-06 01:51 AM PKT` (`2026-09-05 20:51 UTC`) | **Cycle:** `Day 3 of 15`
+> **Last Engine Sync:** `2026-09-06 02:00 AM PKT` (`2026-09-05 21:00 UTC`) | **Cycle:** `Day 3 of 15`
 
 ### 📈 Live Performance Key Metrics
 
@@ -34,7 +34,7 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 |---|---|---|---|---|---|---|---|---|---|---|
 | #36 | **ARB/USDT** | `30m` | ⏳ PENDING | `0.1324` | `0.1308` | `0.1265` | `0.1375` | `0.1436` | 1:1.52 | 2026-09-05 12:30 PM PKT |
 | #37 | **NEAR/USDT** | `30m` | ⏳ PENDING | `2.0529` | `1.9887` | `1.8685` | `2.2699` | `2.5251` | 1:2.34 | 2026-09-05 05:00 PM PKT |
-| #38 | **ZEC/USDT** | `30m` | ⏳ PENDING | `1019.0513` | `1012.2692` | `991.1107` | `1041.9815` | `1068.9487` | 1:1.40 | 2026-09-05 09:30 PM PKT |
+| #38 | **ZEC/USDT** | `30m` | 🟡 **ACTIVE** | `1019.0513` | `1012.2692` | `991.1107` | `1041.9815` | `1068.9487` | 1:1.40 | 2026-09-05 09:30 PM PKT |
 
 ### 📜 Recent Closed Trades Ledger (Day 1 se Aaj Tak)
 
