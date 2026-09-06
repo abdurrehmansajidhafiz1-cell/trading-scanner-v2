@@ -14,19 +14,19 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 ## 📊 Live System Status & Dashboard
 
 <!-- LIVE_DASHBOARD_START -->
-> **Last Engine Sync:** `2026-09-06 08:30 PM PKT` (`2026-09-06 15:30 UTC`) | **Cycle:** `Day 4 of 15`
+> **Last Engine Sync:** `2026-09-06 09:01 PM PKT` (`2026-09-06 16:01 UTC`) | **Cycle:** `Day 4 of 15`
 
 ### 📈 Live Performance Key Metrics
 
 | Metric | Value | Status Indicator |
 |---|---|---|
 | **Production Phase** | `Day 4 of 15` | 🟢 Active Tracking |
-| **Total Setups Qualified** | `8` | 🎯 High Confluence (>=75/100) |
+| **Total Setups Qualified** | `9` | 🎯 High Confluence (>=75/100) |
 | **Resolved Trades** | `0` (0W / 0L / 1BE) | ⚖️ Real Execution Cost Modeled |
 | **Cumulative Win Rate** | **`0.0%`** | 🟡 Calibrating |
 | **Net Realized P&L** | **`+1.40 R`** | 🟢 Positive Expectancy |
 | **Profit Factor** | **`inf`** | Target: > 1.50 |
-| **Active / Pending Setups** | `2` open positions | Max 3 Concurrent Allowed |
+| **Active / Pending Setups** | `3` open positions | Max 3 Concurrent Allowed |
 
 ### 🔴 Active & Monitored Trades Live Tracker
 
@@ -34,6 +34,7 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 |---|---|---|---|---|---|---|---|---|---|---|
 | #39 | **BNB/USDT** | `30m` | ⏳ PENDING | `742.8493` | `732.5761` | `714.2502` | `777.5825` | `818.4307` | 1:2.46 | 2026-09-05 10:00 PM PKT |
 | #40 | **BNB/USDT** | `1h` | ⏳ PENDING | `736.2923` | `724.2366` | `703.0931` | `777.0520` | `824.9877` | 1:2.50 | 2026-09-05 10:00 PM PKT |
+| #41 | **DOGE/USDT** | `1h` | ⏳ PENDING | `0.0881` | `0.0862` | `0.0824` | `0.0946` | `0.1022` | 1:2.19 | 2026-09-05 10:00 PM PKT |
 
 ### 📜 Recent Closed Trades Ledger (Day 1 se Aaj Tak)
 
