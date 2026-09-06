@@ -14,7 +14,7 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 ## 📊 Live System Status & Dashboard
 
 <!-- LIVE_DASHBOARD_START -->
-> **Last Engine Sync:** `2026-09-06 05:31 PM PKT` (`2026-09-06 12:31 UTC`) | **Cycle:** `Day 4 of 15`
+> **Last Engine Sync:** `2026-09-06 06:00 PM PKT` (`2026-09-06 13:00 UTC`) | **Cycle:** `Day 4 of 15`
 
 ### 📈 Live Performance Key Metrics
 
@@ -26,13 +26,12 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 | **Cumulative Win Rate** | **`0.0%`** | 🟡 Calibrating |
 | **Net Realized P&L** | **`+1.40 R`** | 🟢 Positive Expectancy |
 | **Profit Factor** | **`inf`** | Target: > 1.50 |
-| **Active / Pending Setups** | `2` open positions | Max 3 Concurrent Allowed |
+| **Active / Pending Setups** | `1` open positions | Max 3 Concurrent Allowed |
 
 ### 🔴 Active & Monitored Trades Live Tracker
 
 | ID | Coin | TF | Status | Entry 1 (61.8%) | Entry 2 (78.6%) | Stop Loss | Target 1 (TP1) | Target 2 (TP2) | R:R | Created Time (PKT) |
 |---|---|---|---|---|---|---|---|---|---|---|
-| #37 | **NEAR/USDT** | `30m` | ⏳ PENDING | `2.0529` | `1.9887` | `1.8685` | `2.2699` | `2.5251` | 1:2.34 | 2026-09-05 05:00 PM PKT |
 | #39 | **BNB/USDT** | `30m` | ⏳ PENDING | `742.8493` | `732.5761` | `714.2502` | `777.5825` | `818.4307` | 1:2.46 | 2026-09-05 10:00 PM PKT |
 
 ### 📜 Recent Closed Trades Ledger (Day 1 se Aaj Tak)
@@ -40,6 +39,7 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 | ID | Coin | TF | Result | Entry Price | Target 1 | Stop Loss | R:R Realized | Resolved Time (PKT) |
 |---|---|---|---|---|---|---|---|---|
 | #38 | **ZEC/USDT** | `30m` | ⚪ **BREAKEVEN (55% Secured)** | `1012.2692` | `1041.9815` | `991.1107` | 1:1.40 | 2026-09-06 12:30 AM PKT |
+| #37 | **NEAR/USDT** | `30m` | ⚪ EXPIRED | `1.9887` | `2.2699` | `1.8685` | 1:2.34 | 2026-09-06 06:00 PM PKT |
 | #36 | **ARB/USDT** | `30m` | ⚪ EXPIRED | `0.1308` | `0.1375` | `0.1265` | 1:1.52 | 2026-09-06 01:30 PM PKT |
 | #35 | **SPCXB/USDT** | `30m` | ⚪ EXPIRED | `142.8255` | `150.7890` | `139.7922` | 1:2.63 | 2026-09-05 11:01 AM PKT |
 | #33 | **BNB/USDT** | `30m` | ⚪ EXPIRED | `691.0009` | `727.4255` | `676.2747` | 1:2.47 | 2026-09-05 06:30 AM PKT |
