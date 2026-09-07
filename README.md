@@ -14,7 +14,7 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 ## 📊 Live System Status & Dashboard
 
 <!-- LIVE_DASHBOARD_START -->
-> **Last Engine Sync:** `2026-09-07 10:31 AM PKT` (`2026-09-07 05:31 UTC`) | **Cycle:** `Day 5 of 15`
+> **Last Engine Sync:** `2026-09-07 10:32 AM PKT` (`2026-09-07 05:32 UTC`) | **Cycle:** `Day 5 of 15`
 
 ### 📈 Live Performance Key Metrics
 
@@ -22,22 +22,21 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 |---|---|---|
 | **Production Phase** | `Day 5 of 15` | 🟢 Active Tracking |
 | **Total Setups Qualified** | `10` | 🎯 High Confluence (>=75/100) |
-| **Resolved Trades** | `0` (0W / 0L / 1BE) | ⚖️ Real Execution Cost Modeled |
+| **Resolved Trades** | `0` (0W / 0L / 2BE) | ⚖️ Real Execution Cost Modeled |
 | **Cumulative Win Rate** | **`0.0%`** | 🟡 Calibrating |
-| **Net Realized P&L** | **`+1.40 R`** | 🟢 Positive Expectancy |
+| **Net Realized P&L** | **`+2.98 R`** | 🟢 Positive Expectancy |
 | **Profit Factor** | **`inf`** | Target: > 1.50 |
-| **Active / Pending Setups** | `1` open positions | Max 3 Concurrent Allowed |
+| **Active / Pending Setups** | `0` open positions | Max 3 Concurrent Allowed |
 
 ### 🔴 Active & Monitored Trades Live Tracker
 
-| ID | Coin | TF | Status | Entry 1 (61.8%) | Entry 2 (78.6%) | Stop Loss | Target 1 (TP1) | Target 2 (TP2) | R:R | Created Time (PKT) |
-|---|---|---|---|---|---|---|---|---|---|---|
-| #42 | **UNI/USDT** | `30m` | 🟡 **ACTIVE** | `7.0491` | `6.9681` | `6.7440` | `7.3229` | `7.6449` | 1:1.58 | 2026-09-07 04:30 AM PKT |
+> *Abhi market mein koi active/pending trade nahi hai — engine har 30 minute baad high-confluence OTE setups dhoond raha hai.*
 
 ### 📜 Recent Closed Trades Ledger (Day 1 se Aaj Tak)
 
 | ID | Coin | TF | Result | Entry Price | Target 1 | Stop Loss | R:R Realized | Resolved Time (PKT) |
 |---|---|---|---|---|---|---|---|---|
+| #42 | **UNI/USDT** | `30m` | ⚪ **BREAKEVEN (55% Secured)** | `6.9681` | `7.3229` | `6.7440` | 1:1.58 | 2026-09-07 09:00 AM PKT |
 | #41 | **DOGE/USDT** | `1h` | ⚪ EXPIRED | `0.0862` | `0.0946` | `0.0824` | 1:2.19 | 2026-09-07 12:00 AM PKT |
 | #40 | **BNB/USDT** | `1h` | ⚪ EXPIRED | `724.2366` | `777.0520` | `703.0931` | 1:2.50 | 2026-09-07 12:00 AM PKT |
 | #39 | **BNB/USDT** | `30m` | ⚪ EXPIRED | `732.5761` | `777.5825` | `714.2502` | 1:2.46 | 2026-09-06 11:00 PM PKT |
