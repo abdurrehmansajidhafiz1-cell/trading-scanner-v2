@@ -14,7 +14,7 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 ## 📊 Live System Status & Dashboard
 
 <!-- LIVE_DASHBOARD_START -->
-> **Last Engine Sync:** `2026-09-08 11:31 PM PKT` (`2026-09-08 18:31 UTC`) | **Cycle:** `Day 6 of 15`
+> **Last Engine Sync:** `2026-09-09 12:01 AM PKT` (`2026-09-08 19:01 UTC`) | **Cycle:** `Day 6 of 15`
 
 ### 📈 Live Performance Key Metrics
 
@@ -22,23 +22,23 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 |---|---|---|
 | **Production Phase** | `Day 6 of 15` | 🟢 Active Tracking |
 | **Total Setups Qualified** | `19` | 🎯 High Confluence (>=75/100) |
-| **Resolved Trades** | `1` (0W / 1L / 7BE) | ⚖️ Real Execution Cost Modeled |
+| **Resolved Trades** | `1` (0W / 1L / 8BE) | ⚖️ Real Execution Cost Modeled |
 | **Cumulative Win Rate** | **`0.0%`** | 🟡 Calibrating |
-| **Net Realized P&L** | **`+11.55 R`** | 🟢 Positive Expectancy |
-| **Profit Factor** | **`12.57`** | Target: > 1.50 |
-| **Active / Pending Setups** | `2` open positions | Max 3 Concurrent Allowed |
+| **Net Realized P&L** | **`+12.90 R`** | 🟢 Positive Expectancy |
+| **Profit Factor** | **`13.92`** | Target: > 1.50 |
+| **Active / Pending Setups** | `1` open positions | Max 3 Concurrent Allowed |
 
 ### 🔴 Active & Monitored Trades Live Tracker
 
 | ID | Coin | TF | Status | Entry 1 (61.8%) | Entry 2 (78.6%) | Stop Loss | Target 1 (TP1) | Target 2 (TP2) | R:R | Created Time (PKT) |
 |---|---|---|---|---|---|---|---|---|---|---|
 | #48 | **NEAR/USDT** | `1h` | ⏳ PENDING | `2.2439` | `2.2062` | `2.1045` | `2.3718` | `2.5221` | 1:1.63 | 2026-09-08 05:00 AM PKT |
-| #51 | **UNI/USDT** | `1h` | 🟡 **ACTIVE** | `6.9009` | `6.8196` | `6.5557` | `7.1758` | `7.4991` | 1:1.35 | 2026-09-08 02:00 PM PKT |
 
 ### 📜 Recent Closed Trades Ledger (Day 1 se Aaj Tak)
 
 | ID | Coin | TF | Result | Entry Price | Target 1 | Stop Loss | R:R Realized | Resolved Time (PKT) |
 |---|---|---|---|---|---|---|---|---|
+| #51 | **UNI/USDT** | `1h` | ⚪ **BREAKEVEN (55% Secured)** | `6.8196` | `7.1758` | `6.5557` | 1:1.35 | 2026-09-08 11:00 PM PKT |
 | #50 | **LTC/USDT** | `1h` | ⚪ **BREAKEVEN (55% Secured)** | `55.0898` | `59.1820` | `53.0772` | 1:2.03 | 2026-09-07 11:00 PM PKT |
 | #49 | **LINK/USDT** | `1h` | ⚪ **BREAKEVEN (55% Secured)** | `12.4180` | `13.6044` | `11.8780` | 1:2.20 | 2026-09-08 06:00 PM PKT |
 | #46 | **LINK/USDT** | `30m` | ⚪ EXPIRED | `12.4180` | `13.6044` | `11.8972` | 1:2.28 | 2026-09-08 12:01 PM PKT |
@@ -48,7 +48,6 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 | #45 | **ZEC/USDT** | `1h` | ⚪ **BREAKEVEN (55% Secured)** | `1153.6446` | `1250.4065` | `1096.7928` | 1:1.70 | 2026-09-07 08:00 PM PKT |
 | #44 | **DASH/USDT** | `1h` | ⚪ **BREAKEVEN (55% Secured)** | `67.6917` | `77.9810` | `61.7924` | 1:1.74 | 2026-09-06 01:00 PM PKT |
 | #41 | **DOGE/USDT** | `1h` | ⚪ EXPIRED | `0.0862` | `0.0946` | `0.0824` | 1:2.19 | 2026-09-07 12:00 AM PKT |
-| #40 | **BNB/USDT** | `1h` | ⚪ EXPIRED | `724.2366` | `777.0520` | `703.0931` | 1:2.50 | 2026-09-07 12:00 AM PKT |
 
 <!-- LIVE_DASHBOARD_END -->
 
