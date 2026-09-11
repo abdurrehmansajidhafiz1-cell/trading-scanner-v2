@@ -122,6 +122,16 @@ def init_db():
             ("zones", "post_sl_behavior TEXT"),
             ("zones", "post_sl_details TEXT"),
             ("zones", "diagnosis TEXT"),
+            ("zones", "is_created_alert_sent INTEGER DEFAULT 0"),
+            ("zones", "is_be_alert_sent INTEGER DEFAULT 0"),
+            ("zones", "is_tp1_alert_sent INTEGER DEFAULT 0"),
+            ("zones", "is_tp2_alert_sent INTEGER DEFAULT 0"),
+            ("zones", "is_closed_alert_sent INTEGER DEFAULT 0"),
+            ("zones", "fill_type TEXT"),
+            ("zones", "capital_allocated REAL DEFAULT 0.0"),
+            ("zones", "sold_pct REAL DEFAULT 0.0"),
+            ("zones", "realized_pnl_usd REAL DEFAULT 0.0"),
+            ("zones", "realized_pnl_pkr REAL DEFAULT 0.0"),
         ]:
             try:
                 cur.execute(f"ALTER TABLE {col_def[0]} ADD COLUMN {col_def[1]};")
@@ -196,6 +206,43 @@ def mark_zone_alert_sent(zone_id):
         cur.execute("UPDATE zones SET is_alert_sent=1 WHERE id=?", (zone_id,))
 
 
+def mark_zone_alert_stage(zone_id: int, stage_col: str):
+    valid_cols = {
+        "is_created_alert_sent", "is_be_alert_sent", "is_tp1_alert_sent",
+        "is_tp2_alert_sent", "is_closed_alert_sent", "is_alert_sent"
+    }
+    if stage_col not in valid_cols:
+        return
+    with db_cursor() as cur:
+        cur.execute(f"UPDATE zones SET {stage_col}=1 WHERE id=?", (zone_id,))
+
+
+def update_zone_position(zone_id: int, fill_type=None, capital_allocated=None, sold_pct=None,
+                         realized_pnl_usd=None, realized_pnl_pkr=None):
+    updates = []
+    params = []
+    if fill_type is not None:
+        updates.append("fill_type = ?")
+        params.append(fill_type)
+    if capital_allocated is not None:
+        updates.append("capital_allocated = ?")
+        params.append(capital_allocated)
+    if sold_pct is not None:
+        updates.append("sold_pct = ?")
+        params.append(sold_pct)
+    if realized_pnl_usd is not None:
+        updates.append("realized_pnl_usd = ?")
+        params.append(realized_pnl_usd)
+    if realized_pnl_pkr is not None:
+        updates.append("realized_pnl_pkr = ?")
+        params.append(realized_pnl_pkr)
+    if not updates:
+        return
+    params.append(zone_id)
+    with db_cursor() as cur:
+        cur.execute(f"UPDATE zones SET {', '.join(updates)} WHERE id=?", params)
+
+
 def get_pending_zones(coin=None, timeframe=None):
     query = "SELECT * FROM zones WHERE status IN ('PENDING', 'ACTIVE')"
     params = []
@@ -245,6 +292,14 @@ def get_all_zones():
     with db_cursor() as cur:
         cur.execute("SELECT * FROM zones ORDER BY created_at ASC")
         return [dict(r) for r in cur.fetchall()]
+
+
+def get_zone_by_id(zone_id: int):
+    """Specific zone ID se single zone fetch karta hai."""
+    with db_cursor() as cur:
+        cur.execute("SELECT * FROM zones WHERE id=?", (zone_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
 
 
 def get_daily_zone_count(date_str: str) -> int:

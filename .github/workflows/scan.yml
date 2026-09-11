@@ -1,9 +1,9 @@
-name: 30-Minute Crypto Scanner & 30-Day Production Monitor
+name: 5-Minute Crypto Scanner & 30-Day Production Monitor
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '*/5 * * * *'
 
 concurrency:
   group: trading-scanner-run

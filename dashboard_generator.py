@@ -1,4 +1,4 @@
-﻿"""
+"""
 Dashboard Generator: Generates markdown live tracking tables and KPIs
 from SQLite database and updates the README.md automatically.
 """
@@ -67,8 +67,8 @@ def generate_dashboard_markdown() -> str:
     lines.append("### 🔴 Active & Monitored Trades Live Tracker")
     lines.append("")
     if pending:
-        lines.append("| ID | Coin | TF | Status | Entry 1 (61.8%) | Entry 2 (78.6%) | Stop Loss | Target 1 (TP1) | Target 2 (TP2) | R:R | Created Time (PKT) |")
-        lines.append("|---|---|---|---|---|---|---|---|---|---|---|")
+        lines.append("| ID | Coin | TF | Status | Stage / Position | Entry 1 (61.8%) | Entry 2 (78.6%) | Stop Loss | Target 1 (TP1) | Target 2 (TP2) | R:R | Created Time (PKT) |")
+        lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
         for z in pending:
             created_t = tz.format_pkt(datetime.fromisoformat(z['created_at'])) if z.get('created_at') else "N/A"
             status_badge = f"🟡 **{z['status']}**" if z['status'] == "ACTIVE" else f"⏳ {z['status']}"
@@ -77,9 +77,23 @@ def generate_dashboard_markdown() -> str:
             tp1 = z.get("tp1_price") or z.get("target_price")
             tp2 = z.get("tp2_price") or 0.0
             rr = z.get("actual_rr") or 0.0
-            lines.append(f"| #{z['id']} | **{z['coin']}** | `{z['timeframe']}` | {status_badge} | `{e1:.4f}` | `{e2:.4f}` | `{z['stop_price']:.4f}` | `{tp1:.4f}` | `{tp2:.4f}` | 1:{rr:.2f} | {created_t} |")
+
+            if z["status"] == "PENDING":
+                stage_str = "⏳ Pending Retracement"
+            else:
+                sold = float(z.get("sold_pct") or 0.0)
+                fill = z.get("fill_type") or "SINGLE_618"
+                tier_str = "$50 (61.8%)" if fill == "SINGLE_618" else "$100 (61.8%+78.6%)"
+                if z.get("is_tp1_alert_sent") or sold >= 80.0:
+                    stage_str = f"💰 **TP1 Hit** (80% Sold, 20% Runner)"
+                elif z.get("is_be_alert_sent") or sold >= 50.0:
+                    stage_str = f"🛡️ **BE Secured** (50% Sold, Risk-Free)"
+                else:
+                    stage_str = f"🟡 In Trade ({tier_str})"
+
+            lines.append(f"| #{z['id']} | **{z['coin']}** | `{z['timeframe']}` | {status_badge} | {stage_str} | `{e1:.4f}` | `{e2:.4f}` | `{z['stop_price']:.4f}` | `{tp1:.4f}` | `{tp2:.4f}` | 1:{rr:.2f} | {created_t} |")
     else:
-        lines.append("> *Abhi market mein koi active/pending trade nahi hai — engine har 30 minute baad high-confluence OTE setups dhoond raha hai.*")
+        lines.append("> *Abhi market mein koi active/pending trade nahi hai — engine har 5 minute baad high-confluence OTE setups dhoond raha hai.*")
     lines.append("")
     
     # Closed Trades History Table
@@ -87,23 +101,38 @@ def generate_dashboard_markdown() -> str:
     lines.append("### 📜 Recent Closed Trades Ledger (Day 1 se Aaj Tak)")
     lines.append("")
     if resolved_trades:
-        lines.append("| ID | Coin | TF | Result | Entry Price | Target 1 | Stop Loss | R:R Realized | Resolved Time (PKT) |")
+        lines.append("| ID | Coin | TF | Result | Realized P&L ($100 Base) | Entry Price | Target 1 | Stop Loss | Resolved Time (PKT) |")
         lines.append("|---|---|---|---|---|---|---|---|---|")
         for z in reversed(resolved_trades[-10:]):
             res = z["status"]
             if res == "WIN":
-                badge = "🟢 **WIN (TP1 Hit)**"
+                badge = "🟢 **WIN (Target Hit)**"
             elif res == "LOSS":
                 badge = "🔴 **LOSS (SL Hit)**"
             elif res == "BREAKEVEN":
-                badge = "⚪ **BREAKEVEN (55% Secured)**"
+                badge = "⚪ **BREAKEVEN (Profit Locked)**"
             elif res == "TIMEOUT":
                 badge = "⏱️ **TIMEOUT (24h Auto-Exit)**"
             else:
                 badge = f"⚪ {res}"
+
+            if z.get("realized_pnl_usd") is not None and z.get("realized_pnl_usd") != 0.0:
+                pnl_u = z["realized_pnl_usd"]
+                pnl_p = z.get("realized_pnl_pkr") or (pnl_u * 280.0)
+                pnl_display = f"**{pnl_u:+.2f} USDT** (Rs. {pnl_p:+,.0f})"
+            else:
+                rr = z.get("actual_rr") or 0.0
+                if res == "WIN":
+                    pnl_display = f"**+${rr*10:.2f} USDT**"
+                elif res == "BREAKEVEN":
+                    pnl_display = "**+$2.50 USDT** (Risk-Free)"
+                elif res == "LOSS":
+                    pnl_display = "**-$10.00 USDT**"
+                else:
+                    pnl_display = "0.00 USDT"
+
             resolved_t = tz.format_pkt(datetime.fromisoformat(z['resolved_at'])) if z.get('resolved_at') else "N/A"
-            rr = z.get("actual_rr") or 0.0
-            lines.append(f"| #{z['id']} | **{z['coin']}** | `{z['timeframe']}` | {badge} | `{z['entry_price']:.4f}` | `{z['target_price']:.4f}` | `{z['stop_price']:.4f}` | 1:{rr:.2f} | {resolved_t} |")
+            lines.append(f"| #{z['id']} | **{z['coin']}** | `{z['timeframe']}` | {badge} | {pnl_display} | `{z['entry_price']:.4f}` | `{z['target_price']:.4f}` | `{z['stop_price']:.4f}` | {resolved_t} |")
     else:
         lines.append("> *Abhi tak koi trade close nahi hui hai (Fresh 15-day cycle active).*")
     lines.append("")

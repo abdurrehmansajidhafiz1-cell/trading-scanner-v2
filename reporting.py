@@ -757,3 +757,234 @@ def send_instant_signal_alert(zone: dict) -> bool:
     except Exception as e:
         logger.error(f"Failed to send instant signal alert for {zone.get('coin')}: {e}")
         return False
+
+
+def generate_zone_created_alert_text(z: dict) -> str:
+    coin = z.get("coin", "UNKNOWN")
+    tf = z.get("timeframe", "1h")
+    score = z.get("score", 0)
+    now_str = tz.format_both(datetime.now(timezone.utc))
+    diff = (z.get("swing_high") or 0.0) - (z.get("swing_low") or 0.0)
+    e1 = z.get("entry_1") or (z.get("swing_high", 0.0) - 0.618 * diff if diff > 0 else z.get("entry_price", 0.0))
+    e2 = z.get("entry_2") or (z.get("swing_high", 0.0) - 0.786 * diff if diff > 0 else z.get("entry_price", 0.0))
+    sl = z.get("stop_price", 0.0)
+    tp1 = z.get("tp1_price") or z.get("target_price", 0.0)
+    tp2 = z.get("tp2_price") or (z.get("swing_low", 0.0) + 1.618 * diff if diff > 0 else tp1 * 1.05)
+
+    lines = [
+        "================================================================================",
+        f"🎯 NEW FIBONACCI ZONE CREATED & RECORDED — POTENTIAL SETUP",
+        "================================================================================",
+        f"Coin:                {coin}",
+        f"Timeframe:           {tf}",
+        f"Confluence Score:    {score}/100",
+        f"Detection Time:      {now_str}",
+        "",
+        "--- SWING STRUCTURE & PLANNED EXECUTION LEVELS ---",
+        f"Swing Structure:     {_fmt_num(z.get('swing_low'))} -> {_fmt_num(z.get('swing_high'))}",
+        f"Tier 1 Entry (61.8% Golden Pocket): {_fmt_num(e1)}  (Deploy 50% Capital)",
+        f"Tier 2 Entry (78.6% OTE Zone):       {_fmt_num(e2)}  (Deploy 50% Capital)",
+        f"Invalidation Stop Loss (Safe SL):   {_fmt_num(sl)}",
+        f"Target 1 (TP1 Swing High):          {_fmt_num(tp1)}",
+        f"Target 2 (TP2 Fib Extension):       {_fmt_num(tp2)}",
+        "",
+        "STATUS: PENDING RETRACEMENT",
+        "Market is forming the structure. Monitor for pullback into the 61.8% Golden Pocket.",
+        "Jab price 61.8% ke qareeb aayegi aur pullback confirm hoga, to detailed Trade Signal Alert aayega.",
+        "================================================================================",
+    ]
+    return "\n".join(lines)
+
+
+def send_zone_created_alert(zone: dict) -> bool:
+    try:
+        from email_sender import send_email
+        body = generate_zone_created_alert_text(zone)
+        coin = zone.get("coin", "UNKNOWN")
+        tf = zone.get("timeframe", "1h")
+        score = zone.get("score", 0)
+        subject = f"🎯 NEW ZONE CREATED: {coin} [{tf}] — Score {score}/100"
+        return send_email(subject, body)
+    except Exception as e:
+        logger.error(f"Failed to send zone created alert for {zone.get('coin')}: {e}")
+        return False
+
+
+def generate_be_hit_alert_text(z: dict, fill_type: str, capital: float) -> str:
+    coin = z.get("coin", "UNKNOWN")
+    tf = z.get("timeframe", "1h")
+    now_str = tz.format_both(datetime.now(timezone.utc))
+    entry_price = z.get("entry_price", 0.0)
+    tp1 = z.get("tp1_price") or z.get("target_price", 0.0)
+    pkr_rate = getattr(config, "USDT_PKR_RATE", 280.0)
+
+    is_single = (fill_type == "SINGLE_618")
+    fill_label = "Single Fill (Tier 1 @ 61.8% Only - $50.00 Base)" if is_single else "Double Fill (Tier 1 + Tier 2 - $100.00 Base)"
+    sell_usd = capital * 0.50
+    sell_pkr = sell_usd * pkr_rate
+
+    lines = [
+        "================================================================================",
+        f"🛡️ BREAK-EVEN HIT — SECURE 50% PROFIT & MOVE STOP LOSS TO ENTRY",
+        "================================================================================",
+        f"Coin:                {coin}",
+        f"Timeframe:           {tf}",
+        f"Trigger Time:        {now_str}",
+        f"Position Type:       {fill_label}",
+        f"Total Capital Used:  ${capital:.2f} USDT (Rs. {capital*pkr_rate:,.2f} PKR)",
+        "",
+        "🚨 IMMEDIATE ACTION REQUIRED:",
+        f"1. SELL 50% OF CURRENT POSITION NOW: Sell ${sell_usd:.2f} USDT (Rs. {sell_pkr:,.2f} PKR).",
+        f"2. MOVE STOP LOSS TO ENTRY: Set Stop Loss at {_fmt_num(entry_price)} (accounting for trading fees).",
+        "",
+        "🎯 TRADE STATUS: 100% RISK-FREE!",
+        f"Aapka 50% capital profit ke sath lock ho chuka hai.",
+        f"Baqi 50% position baghair kisi risk ke Target 1 ({_fmt_num(tp1)}) ki taraf chal rahi hai.",
+        "================================================================================",
+    ]
+    return "\n".join(lines)
+
+
+def send_be_hit_alert(zone: dict, fill_type: str, capital: float) -> bool:
+    try:
+        from email_sender import send_email
+        body = generate_be_hit_alert_text(zone, fill_type, capital)
+        coin = zone.get("coin", "UNKNOWN")
+        tf = zone.get("timeframe", "1h")
+        subject = f"🛡️ BREAK-EVEN HIT: {coin} [{tf}] — Lock 50% & Move SL to Entry"
+        return send_email(subject, body)
+    except Exception as e:
+        logger.error(f"Failed to send BE hit alert for {zone.get('coin')}: {e}")
+        return False
+
+
+def generate_tp1_hit_alert_text(z: dict, fill_type: str, capital: float) -> str:
+    coin = z.get("coin", "UNKNOWN")
+    tf = z.get("timeframe", "1h")
+    now_str = tz.format_both(datetime.now(timezone.utc))
+    tp1 = z.get("tp1_price") or z.get("target_price", 0.0)
+    tp2 = z.get("tp2_price") or 0.0
+    pkr_rate = getattr(config, "USDT_PKR_RATE", 280.0)
+
+    is_single = (fill_type == "SINGLE_618")
+    sell_tp1_usd = capital * 0.30
+    runner_usd = capital * 0.20
+
+    lines = [
+        "================================================================================",
+        f"💰 TARGET 1 (TP1) HIT — 80% PROFIT LOCKED!",
+        "================================================================================",
+        f"Coin:                {coin}",
+        f"Timeframe:           {tf}",
+        f"Target 1 Price:      {_fmt_num(tp1)}",
+        f"Hit Time:            {now_str}",
+        "",
+        "🚨 IMMEDIATE ACTION REQUIRED:",
+        f"1. SELL 30% OF POSITION NOW: Sell ${sell_tp1_usd:.2f} USDT (Rs. {sell_tp1_usd*pkr_rate:,.2f} PKR).",
+        f"   (Ab tak total 80% position profit mein book ho chuki hai!)",
+        f"2. RUNNER MODE ACTIVE: Baqi 20% position (${runner_usd:.2f} USDT) ko Target 2 ({_fmt_num(tp2)}) ke liye chhor dein.",
+        f"3. STOP LOSS: Ensure SL remains at Entry Price (Risk-Free).",
+        "================================================================================",
+    ]
+    return "\n".join(lines)
+
+
+def send_tp1_hit_alert(zone: dict, fill_type: str, capital: float) -> bool:
+    try:
+        from email_sender import send_email
+        body = generate_tp1_hit_alert_text(zone, fill_type, capital)
+        coin = zone.get("coin", "UNKNOWN")
+        tf = zone.get("timeframe", "1h")
+        subject = f"💰 TARGET 1 (TP1) HIT: {coin} [{tf}] — Lock 30% More (80% Total Booked)"
+        return send_email(subject, body)
+    except Exception as e:
+        logger.error(f"Failed to send TP1 alert for {zone.get('coin')}: {e}")
+        return False
+
+
+def generate_tp2_hit_alert_text(z: dict, fill_type: str, capital: float) -> str:
+    coin = z.get("coin", "UNKNOWN")
+    tf = z.get("timeframe", "1h")
+    now_str = tz.format_both(datetime.now(timezone.utc))
+    tp2 = z.get("tp2_price") or 0.0
+
+    lines = [
+        "================================================================================",
+        f"🚀 FULL TARGET 2 (TP2) HIT — TRADE COMPLETED AT MAXIMUM PROFIT!",
+        "================================================================================",
+        f"Coin:                {coin}",
+        f"Timeframe:           {tf}",
+        f"Target 2 Price:      {_fmt_num(tp2)}",
+        f"Hit Time:            {now_str}",
+        "",
+        "🎉 TRADE 100% COMPLETED:",
+        "• 50% exited at Break-Even.",
+        "• 30% exited at Target 1 (TP1).",
+        "• 20% final runner exited at Target 2 (TP2).",
+        "",
+        "Aapki trade 100% complete ho chuki hai aur final profit wallet mein add ho gaya hai!",
+        "================================================================================",
+    ]
+    return "\n".join(lines)
+
+
+def send_tp2_hit_alert(zone: dict, fill_type: str, capital: float) -> bool:
+    try:
+        from email_sender import send_email
+        body = generate_tp2_hit_alert_text(zone, fill_type, capital)
+        coin = zone.get("coin", "UNKNOWN")
+        tf = zone.get("timeframe", "1h")
+        subject = f"🚀 FULL TARGET 2 (TP2) HIT: {coin} [{tf}] — 100% Target Achieved"
+        return send_email(subject, body)
+    except Exception as e:
+        logger.error(f"Failed to send TP2 alert for {zone.get('coin')}: {e}")
+        return False
+
+
+def generate_trade_closed_alert_text(z: dict, outcome: str, net_usd: float, net_pkr: float) -> str:
+    coin = z.get("coin", "UNKNOWN")
+    tf = z.get("timeframe", "1h")
+    now_str = tz.format_both(datetime.now(timezone.utc))
+    capital = z.get("capital_allocated") or 100.0
+    ret_pct = (net_usd / capital * 100.0) if capital > 0 else 0.0
+
+    outcome_desc = {
+        "FULL_TP2_WIN": "100% Targets Achieved (50% BE + 30% TP1 + 20% TP2)",
+        "TP1_THEN_BE": "TP1 Achieved (+30%), Runner Exited at Entry SL (80% Win)",
+        "BREAK_EVEN": "50% Exited at BE Gain, Remaining Exited at Entry SL (Risk-Free Win)",
+        "STOP_LOSS": "Stop Loss Hit",
+        "EXPIRED": "Expired (Invalidated / Pullback not completed)",
+    }.get(outcome, outcome)
+
+    lines = [
+        "================================================================================",
+        f"🛑 TRADE CLOSED & SETTLED — FINAL SUMMARY: {coin} [{tf}]",
+        "================================================================================",
+        f"Coin:                {coin}",
+        f"Timeframe:           {tf}",
+        f"Closure Time:        {now_str}",
+        f"Final Outcome:       {outcome_desc}",
+        f"Capital Allocated:   ${capital:.2f} USDT",
+        "",
+        "--- FINAL REALIZED P&L ($100 / $50 ALLOCATION MODEL) ---",
+        f"Net P&L (USDT):      {net_usd:+.2f} USDT ({ret_pct:+.2f}%)",
+        f"Net P&L (PKR):       Rs. {net_pkr:+,.2f} PKR",
+        f"Final Wallet Return: ${capital + net_usd:.2f} USDT",
+        "",
+        "Trade has been recorded in the Recent Closed Trades Ledger.",
+        "================================================================================",
+    ]
+    return "\n".join(lines)
+
+
+def send_trade_closed_alert(zone: dict, outcome: str, net_usd: float, net_pkr: float) -> bool:
+    try:
+        from email_sender import send_email
+        body = generate_trade_closed_alert_text(zone, outcome, net_usd, net_pkr)
+        coin = zone.get("coin", "UNKNOWN")
+        tf = zone.get("timeframe", "1h")
+        subject = f"🛑 TRADE CLOSED: {coin} [{tf}] — [{outcome}] Net: {net_usd:+.2f} USDT"
+        return send_email(subject, body)
+    except Exception as e:
+        logger.error(f"Failed to send trade closed alert for {zone.get('coin')}: {e}")
+        return False

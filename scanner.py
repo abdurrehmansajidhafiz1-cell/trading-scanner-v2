@@ -55,70 +55,182 @@ def resolve_pending_zones(exchange, coin: str, timeframe: str):
         if created_at_ts.tzinfo is None:
             created_at_ts = created_at_ts.tz_localize("UTC")
 
-        # Strictly evaluate candles AFTER the structure creation / swing high bar
-        relevant_candles = df[df["timestamp"] > created_at_ts].reset_index(drop=True)
         touched = zone["status"] == "ACTIVE"
-        touched_at = zone["touched_at"]
+        touched_at = zone.get("touched_at")
         resolved = False
         be_moved = False
         current_stop = zone["stop_price"]
 
+        # CRITICAL BUG FIX: If trade is already ACTIVE, evaluate ONLY candles AFTER entry touched_at
+        if touched and touched_at:
+            touched_at_ts = pd.Timestamp(touched_at)
+            if touched_at_ts.tzinfo is None:
+                touched_at_ts = touched_at_ts.tz_localize("UTC")
+            relevant_candles = df[df["timestamp"] > touched_at_ts].reset_index(drop=True)
+        else:
+            relevant_candles = df[df["timestamp"] > created_at_ts].reset_index(drop=True)
+
         be_ratio = getattr(config, "BREAKEVEN_TRIGGER_RATIO", 0.55)
-        be_trigger = zone["entry_price"] + (zone["target_price"] - zone["entry_price"]) * be_ratio
+        fee_rate = getattr(config, "BINANCE_FEE_PCT", 0.075) / 100.0
+        pkr_rate = getattr(config, "USDT_PKR_RATE", 280.0)
+
+        # Dual-Tier Entry Support (61.8% Golden Pocket & 78.6% OTE)
+        tier1_price = zone.get("entry_1") or zone["entry_price"]
+        tier2_price = zone.get("entry_2") or zone["entry_price"]
+        tol_pct = tf_cfg["zone_tolerance_pct"] / 100
+
+        tier1_threshold = tier1_price * (1 + tol_pct)
+        tier2_threshold = tier2_price * (1 + tol_pct)
+
+        fill_type = zone.get("fill_type") or "SINGLE_618"
+        capital_allocated = float(zone.get("capital_allocated") or 50.0)
+        sold_pct = float(zone.get("sold_pct") or 0.0)
+
+        effective_entry = zone["entry_price"]
+        if fill_type == "DOUBLE_618_786":
+            effective_entry = (tier1_price + tier2_price) / 2.0
+        elif tier1_price:
+            effective_entry = tier1_price
+
+        be_trigger = effective_entry + (zone["target_price"] - effective_entry) * be_ratio
         has_touched_zone = False
 
         for idx, candle in relevant_candles.iterrows():
             candle_ts_str = str(candle["timestamp"])
 
-            # Step 1: Wait for price to touch Entry Zone and confirm with a green candle
+            # Step 1: Wait for price to touch Entry Zone (Tier 1: 61.8% or Tier 2: 78.6%)
+            # and confirm with a green reversal candle
             if not touched:
-                touch_threshold = zone["entry_price"] * (1 + tf_cfg["zone_tolerance_pct"] / 100)
-                if candle["low"] <= touch_threshold:
+                swing_high = zone.get("swing_high")
+                if getattr(config, "ENABLE_BREAKOUT_EXPIRY", True) and swing_high and candle["high"] > (swing_high * 1.002):
+                    db.update_zone_status(zone["id"], "EXPIRED", resolved_at=candle_ts_str)
+                    resolved = True
+                    break
+
+                touched_tier1 = candle["low"] <= tier1_threshold
+                touched_tier2 = candle["low"] <= tier2_threshold
+
+                if touched_tier2:
                     has_touched_zone = True
+                    fill_type = "DOUBLE_618_786"
+                    capital_allocated = 100.0
+                    effective_entry = (tier1_price + tier2_price) / 2.0
+                elif touched_tier1 and getattr(config, "ENABLE_DUAL_TIER_ENTRY", True):
+                    has_touched_zone = True
+                    fill_type = "SINGLE_618"
+                    capital_allocated = 50.0
+                    effective_entry = tier1_price
 
                 if has_touched_zone:
-                    # Agar confirmation se pehle hi stop loss hit ho jaye -> EXPIRED (invalidated)
                     if candle["low"] <= current_stop:
                         db.update_zone_status(zone["id"], "EXPIRED", resolved_at=candle_ts_str)
                         resolved = True
                         break
 
-                    # Reversal Green Candle Confirmation
                     if candle["close"] > candle["open"]:
                         touched = True
                         touched_at = candle_ts_str
+                        be_trigger = effective_entry + (zone["target_price"] - effective_entry) * be_ratio
                         db.update_zone_status(zone["id"], "ACTIVE", touched_at=touched_at)
-                
-                # Do not evaluate TP/SL resolution on the exact candle where entry was confirmed
+                        db.update_zone_position(zone["id"], fill_type=fill_type, capital_allocated=capital_allocated, sold_pct=0.0)
+
                 continue
 
             # Step 2: Trade is ACTIVE -> Track Breakeven, Take-Profit (TP1 & TP2), and Stop-Loss
             if touched:
+                # Agar trade SINGLE_618 par active hui thi aur baad mein Tier 2 dip kiya (before BE)
+                if fill_type == "SINGLE_618" and candle["low"] <= tier2_threshold and not be_moved:
+                    fill_type = "DOUBLE_618_786"
+                    capital_allocated = 100.0
+                    effective_entry = (tier1_price + tier2_price) / 2.0
+                    be_trigger = effective_entry + (zone["target_price"] - effective_entry) * be_ratio
+                    db.update_zone_position(zone["id"], fill_type=fill_type, capital_allocated=capital_allocated)
+
                 # 55% Breakeven SL Activation
                 if getattr(config, "ENABLE_BREAKEVEN_SL", True) and not be_moved:
                     if candle["high"] >= be_trigger:
                         be_moved = True
-                        current_stop = zone["entry_price"]
+                        current_stop = effective_entry * (1.0 + fee_rate)
+                        if not zone.get("is_be_alert_sent"):
+                            from reporting import send_be_hit_alert
+                            send_be_hit_alert(zone, fill_type, capital_allocated)
+                            db.mark_zone_alert_stage(zone["id"], "is_be_alert_sent")
+                            zone["is_be_alert_sent"] = 1
+                        sold_pct = max(sold_pct, 50.0)
+                        db.update_zone_position(zone["id"], sold_pct=sold_pct)
 
                 tp1_target = zone.get("tp1_price") or zone["target_price"]
                 tp2_target = zone.get("tp2_price") or (zone["target_price"] * 1.05)
 
-                # Check if TP2 or TP1 reached
-                if candle["high"] >= tp2_target or candle["high"] >= tp1_target:
+                # Target 1 (TP1) Check
+                if candle["high"] >= tp1_target and not zone.get("is_tp1_alert_sent"):
+                    from reporting import send_tp1_hit_alert
+                    send_tp1_hit_alert(zone, fill_type, capital_allocated)
+                    db.mark_zone_alert_stage(zone["id"], "is_tp1_alert_sent")
+                    zone["is_tp1_alert_sent"] = 1
+                    sold_pct = max(sold_pct, 80.0)
+                    db.update_zone_position(zone["id"], sold_pct=sold_pct)
+
+                # Target 2 (TP2) Full Exit Check
+                if candle["high"] >= tp2_target:
+                    if not zone.get("is_tp2_alert_sent"):
+                        from reporting import send_tp2_hit_alert
+                        send_tp2_hit_alert(zone, fill_type, capital_allocated)
+                        db.mark_zone_alert_stage(zone["id"], "is_tp2_alert_sent")
+                        zone["is_tp2_alert_sent"] = 1
+
+                    c_total = capital_allocated / effective_entry if effective_entry > 0 else 0.0
+                    rev = (c_total * 0.50 * be_trigger) + (c_total * 0.30 * tp1_target) + (c_total * 0.20 * tp2_target)
+                    fees = (capital_allocated + rev) * fee_rate
+                    net_usd = rev - capital_allocated - fees
+                    net_pkr = net_usd * pkr_rate
+
+                    if not zone.get("is_closed_alert_sent"):
+                        from reporting import send_trade_closed_alert
+                        send_trade_closed_alert(zone, "FULL_TP2_WIN", net_usd, net_pkr)
+                        db.mark_zone_alert_stage(zone["id"], "is_closed_alert_sent")
+                        zone["is_closed_alert_sent"] = 1
+
+                    db.update_zone_position(zone["id"], sold_pct=100.0, realized_pnl_usd=net_usd, realized_pnl_pkr=net_pkr)
                     db.update_zone_status(zone["id"], "WIN", touched_at=touched_at, resolved_at=candle_ts_str)
                     resolved = True
                     break
+
+                # Stop-Loss or Reversal to Entry SL Check
                 elif candle["low"] <= current_stop:
+                    c_total = capital_allocated / effective_entry if effective_entry > 0 else 0.0
                     if be_moved:
-                        db.update_zone_status(zone["id"], "BREAKEVEN", touched_at=touched_at, resolved_at=candle_ts_str)
+                        if zone.get("is_tp1_alert_sent"):
+                            rev = (c_total * 0.50 * be_trigger) + (c_total * 0.30 * tp1_target) + (c_total * 0.20 * current_stop)
+                            outcome = "TP1_THEN_BE"
+                            status = "WIN"
+                        else:
+                            rev = (c_total * 0.50 * be_trigger) + (c_total * 0.50 * current_stop)
+                            outcome = "BREAK_EVEN"
+                            status = "BREAKEVEN"
+                        fees = (capital_allocated + rev) * fee_rate
+                        net_usd = rev - capital_allocated - fees
+                        net_pkr = net_usd * pkr_rate
                     else:
-                        db.update_zone_status(zone["id"], "LOSS", touched_at=touched_at, resolved_at=candle_ts_str)
-                        # Post-SL Price Action Diagnosis
+                        rev = c_total * current_stop
+                        fees = (capital_allocated + rev) * fee_rate
+                        net_usd = rev - capital_allocated - fees
+                        net_pkr = net_usd * pkr_rate
+                        outcome = "STOP_LOSS"
+                        status = "LOSS"
                         candles_after_sl = relevant_candles.iloc[idx + 1: idx + 20]
                         diag = diagnose_trade_outcome(zone, candles_after_sl)
                         if diag.get("post_sl_behavior"):
                             db.update_zone_post_sl_info(zone["id"], diag["post_sl_behavior"], diag["post_sl_details"])
 
+                    if not zone.get("is_closed_alert_sent"):
+                        from reporting import send_trade_closed_alert
+                        send_trade_closed_alert(zone, outcome, net_usd, net_pkr)
+                        db.mark_zone_alert_stage(zone["id"], "is_closed_alert_sent")
+                        zone["is_closed_alert_sent"] = 1
+
+                    db.update_zone_position(zone["id"], sold_pct=100.0, realized_pnl_usd=net_usd, realized_pnl_pkr=net_pkr)
+                    db.update_zone_status(zone["id"], status, touched_at=touched_at, resolved_at=candle_ts_str)
                     resolved = True
                     break
 
@@ -271,10 +383,10 @@ def process_coin_timeframe(exchange, coin: str, timeframe: str, start_datetime: 
                             f"@ {result.best_zone_price:.4f} (Tier1: {result.entry_1:.4f}, Tier2: {result.entry_2:.4f}), "
                             f"score {result.best_score}, R:R 1:{result.actual_rr:.2f} (candle: {checked_at})")
 
-                # Instant email alert sirf latest live candle par jana chahiye
+                # Instant email alerts sirf latest live candle par jane chahiye
                 is_latest_candle = (i == new_indices[-1])
                 if getattr(config, "ENABLE_INSTANT_ALERTS", True) and is_latest_candle:
-                    from reporting import send_instant_signal_alert
+                    from reporting import send_zone_created_alert, send_instant_signal_alert
                     zone_dict = {
                         "id": zone_id, "coin": coin, "timeframe": timeframe,
                         "level_name": result.best_zone_name, "entry_price": result.best_zone_price,
@@ -286,6 +398,13 @@ def process_coin_timeframe(exchange, coin: str, timeframe: str, start_datetime: 
                         "entry_2": result.entry_2, "tp1_price": result.tp1_price,
                         "tp2_price": result.tp2_price,
                     }
+                    # 1. Zone Created Alert
+                    created_sent = send_zone_created_alert(zone_dict)
+                    if created_sent:
+                        db.mark_zone_alert_stage(zone_id, "is_created_alert_sent")
+                        logger.info(f"Zone created alert sent for {coin} [{timeframe}]!")
+
+                    # 2. Trade Signal Alert (10 Scenarios Playbook)
                     sent = send_instant_signal_alert(zone_dict)
                     if sent:
                         db.mark_zone_alert_sent(zone_id)
