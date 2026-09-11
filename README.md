@@ -14,7 +14,7 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 ## 📊 Live System Status & Dashboard
 
 <!-- LIVE_DASHBOARD_START -->
-> **Last Engine Sync:** `2026-09-11 07:31 PM PKT` (`2026-09-11 14:31 UTC`) | **Cycle:** `Day 9 of 15`
+> **Last Engine Sync:** `2026-09-11 07:51 PM PKT` (`2026-09-11 14:51 UTC`) | **Cycle:** `Day 9 of 15`
 
 ### 📈 Live Performance Key Metrics
 
@@ -30,22 +30,22 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 
 ### 🔴 Active & Monitored Trades Live Tracker
 
-> *Abhi market mein koi active/pending trade nahi hai — engine har 30 minute baad high-confluence OTE setups dhoond raha hai.*
+> *Abhi market mein koi active/pending trade nahi hai — engine har 5 minute baad high-confluence OTE setups dhoond raha hai.*
 
 ### 📜 Recent Closed Trades Ledger (Day 1 se Aaj Tak)
 
-| ID | Coin | TF | Result | Entry Price | Target 1 | Stop Loss | R:R Realized | Resolved Time (PKT) |
+| ID | Coin | TF | Result | Realized P&L ($100 Base) | Entry Price | Target 1 | Stop Loss | Resolved Time (PKT) |
 |---|---|---|---|---|---|---|---|---|
-| #59 | **NEAR/USDT** | `30m` | ⚪ **BREAKEVEN (55% Secured)** | `2.4096` | `2.5149` | `2.3298` | 1:1.32 | 2026-09-11 05:00 PM PKT |
-| #58 | **ZEC/USDT** | `30m` | 🟢 **WIN (TP1 Hit)** | `1197.9036` | `1289.7785` | `1147.9484` | 1:1.84 | 2026-09-09 08:00 PM PKT |
-| #57 | **ETH/USDT** | `30m` | 🟢 **WIN (TP1 Hit)** | `2486.5702` | `2520.9635` | `2461.9653` | 1:1.40 | 2026-09-09 06:30 PM PKT |
-| #55 | **ENA/USDT** | `1h` | ⚪ EXPIRED | `0.1611` | `0.1687` | `0.1557` | 1:1.41 | 2026-09-09 08:00 PM PKT |
-| #54 | **ETH/USDT** | `1h` | ⚪ EXPIRED | `2455.7740` | `2504.2470` | `2422.8435` | 1:1.47 | 2026-09-10 01:01 AM PKT |
-| #56 | **SPCXB/USDT** | `1h` | 🟢 **WIN (TP1 Hit)** | `147.3559` | `154.2890` | `144.2924` | 1:2.26 | 2026-09-09 12:00 AM PKT |
-| #53 | **LINK/USDT** | `1h` | 🟢 **WIN (TP1 Hit)** | `12.3989` | `12.7698` | `12.1309` | 1:1.38 | 2026-09-08 10:00 PM PKT |
-| #52 | **INJ/USDT** | `30m` | ⚪ **BREAKEVEN (55% Secured)** | `6.2690` | `6.5509` | `6.0776` | 1:1.47 | 2026-09-09 08:30 AM PKT |
-| #51 | **UNI/USDT** | `1h` | ⚪ **BREAKEVEN (55% Secured)** | `6.8196` | `7.1758` | `6.5557` | 1:1.35 | 2026-09-08 11:00 PM PKT |
-| #48 | **NEAR/USDT** | `1h` | ⚪ EXPIRED | `2.2062` | `2.3718` | `2.1045` | 1:1.63 | 2026-09-09 07:01 AM PKT |
+| #59 | **NEAR/USDT** | `30m` | ⚪ **BREAKEVEN (Profit Locked)** | **+$2.50 USDT** (Risk-Free) | `2.4096` | `2.5149` | `2.3298` | 2026-09-11 05:00 PM PKT |
+| #58 | **ZEC/USDT** | `30m` | 🟢 **WIN (Target Hit)** | **+$18.39 USDT** | `1197.9036` | `1289.7785` | `1147.9484` | 2026-09-09 08:00 PM PKT |
+| #57 | **ETH/USDT** | `30m` | 🟢 **WIN (Target Hit)** | **+$13.98 USDT** | `2486.5702` | `2520.9635` | `2461.9653` | 2026-09-09 06:30 PM PKT |
+| #55 | **ENA/USDT** | `1h` | ⚪ EXPIRED | 0.00 USDT | `0.1611` | `0.1687` | `0.1557` | 2026-09-09 08:00 PM PKT |
+| #54 | **ETH/USDT** | `1h` | ⚪ EXPIRED | 0.00 USDT | `2455.7740` | `2504.2470` | `2422.8435` | 2026-09-10 01:01 AM PKT |
+| #56 | **SPCXB/USDT** | `1h` | 🟢 **WIN (Target Hit)** | **+$22.63 USDT** | `147.3559` | `154.2890` | `144.2924` | 2026-09-09 12:00 AM PKT |
+| #53 | **LINK/USDT** | `1h` | 🟢 **WIN (Target Hit)** | **+$13.84 USDT** | `12.3989` | `12.7698` | `12.1309` | 2026-09-08 10:00 PM PKT |
+| #52 | **INJ/USDT** | `30m` | ⚪ **BREAKEVEN (Profit Locked)** | **+$2.50 USDT** (Risk-Free) | `6.2690` | `6.5509` | `6.0776` | 2026-09-09 08:30 AM PKT |
+| #51 | **UNI/USDT** | `1h` | ⚪ **BREAKEVEN (Profit Locked)** | **+$2.50 USDT** (Risk-Free) | `6.8196` | `7.1758` | `6.5557` | 2026-09-08 11:00 PM PKT |
+| #48 | **NEAR/USDT** | `1h` | ⚪ EXPIRED | 0.00 USDT | `2.2062` | `2.3718` | `2.1045` | 2026-09-09 07:01 AM PKT |
 
 <!-- LIVE_DASHBOARD_END -->
 
