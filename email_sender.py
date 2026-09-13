@@ -26,9 +26,11 @@ def send_email(subject: str, body: str) -> bool:
     msg.attach(MIMEText(body, "plain"))
 
     try:
+        user = config.SMTP_USER.strip()
+        pwd = config.SMTP_PASSWORD.replace(" ", "").strip()
         with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT) as server:
             server.starttls()
-            server.login(config.SMTP_USER, config.SMTP_PASSWORD)
+            server.login(user, pwd)
             server.send_message(msg)
         logger.info(f"Email bhej diya: {subject}")
         return True

@@ -617,12 +617,15 @@ def generate_instant_signal_alert_text(z: dict) -> str:
     gross_s10 = rev_s10 - 50.0
     net_s10 = gross_s10 - fee_s10
 
+    touched_at = z.get("touched_at")
+    status_label = f"ACTIVE (Entry Filled at {touched_at})" if touched_at else "ACTIVE"
     lines = [
         "================================================================================",
-        f"🚨 INTRADAY FIBONACCI TRADE SIGNAL — INSTANT ALERT",
+        f"🚨 ENTRY FILLED & TRADE ACTIVE — 10 SCENARIOS PLAYBOOK",
         "================================================================================",
         f"Coin:                {coin}",
         f"Timeframe:           {timeframe}",
+        f"Trade Status:        {status_label}",
         f"Confluence Score:    {score}/100",
         f"Score Breakdown:     {breakdown}",
         f"Swing Structure:     {_fmt_num(swing_low)} -> {_fmt_num(swing_high)}",
@@ -752,7 +755,7 @@ def send_instant_signal_alert(zone: dict) -> bool:
         coin = zone.get("coin", "UNKNOWN")
         tf = zone.get("timeframe", "1h")
         score = zone.get("score", 0)
-        subject = f"🚨 TRADE SIGNAL ALERT: {coin} [{tf}] — Score {score}/100"
+        subject = f"🚨 ENTRY FILLED & TRADE ACTIVE: {coin} [{tf}] — Score {score}/100"
         return send_email(subject, body)
     except Exception as e:
         logger.error(f"Failed to send instant signal alert for {zone.get('coin')}: {e}")

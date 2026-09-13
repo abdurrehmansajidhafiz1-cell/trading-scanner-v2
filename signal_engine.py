@@ -344,6 +344,24 @@ def analyze(coin: str, timeframe: str, df: pd.DataFrame, df_daily: pd.DataFrame,
         )
         return result
 
+    # --- Pullback Confirmation Gate (Phantom Zone Defense) ---
+    # Zone tabhi qualify hona chahiye jab market peak se kam az kam 38.2% pullback shuru kar chuki ho.
+    # Agar price abhi bhi swing high ke peak par hai aur pullback start nahi hua, to zone qualify nahi hoga.
+    if getattr(config, "REQUIRE_PULLBACK_CONFIRMATION", True):
+        pullback_ratio = getattr(config, "MIN_PULLBACK_RATIO", 0.382)
+        pullback_threshold = result.swing_high - (pullback_ratio * diff)
+
+        candles_since_high = df[df["timestamp"] >= swing_high_ts]
+        lowest_since_high = candles_since_high["low"].min() if len(candles_since_high) > 0 else current_low
+
+        if lowest_since_high > pullback_threshold:
+            result.reject_reason_code = "PULLBACK_NOT_STARTED"
+            result.reject_reason_detail = (
+                f"Price ne abhi 38.2% retracement ({pullback_threshold:.4f}) touch nahi ki "
+                f"(Lowest since high: {lowest_since_high:.4f}) — waiting for active pullback"
+            )
+            return result
+
     result.entry_1 = result.swing_high - 0.618 * diff
     result.entry_2 = result.swing_high - 0.786 * diff
     result.stop_price = stop_price

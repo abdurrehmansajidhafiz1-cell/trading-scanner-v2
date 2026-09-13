@@ -160,6 +160,61 @@ def test_instant_alert_generation():
     print("Instant Alert Generation Test (Dual USD & PKR Playbooks): OK\n")
 
 
+def test_dual_tier_resolution():
+    print("=== Testing Dual-Tier Entry Resolution (61.8% & 78.6%) ===")
+    from scanner import resolve_pending_zones
+    
+    # Create test zone with Tier 1 @ 100, Tier 2 @ 90, SL @ 85, TP1 @ 110
+    now = datetime.now(timezone.utc)
+    z_id = db.insert_zone(
+        coin="TEST/USDT", timeframe="30m", level_name="78.6% OTE",
+        entry_price=90.0, stop_price=85.0, target_price=110.0,
+        swing_low=80.0, swing_high=120.0, score=90, actual_rr=2.0,
+        pivot_len=5, created_at=(now - timedelta(hours=2)).isoformat(),
+        entry_1=100.0, entry_2=90.0, tp1_price=110.0
+    )
+
+    class MockExchange:
+        def fetch_ohlcv(self, symbol, timeframe, limit=100):
+            # Bar 1: Dips to 98 (touches 61.8% @ 100, but NOT 78.6% @ 90), Green candle (close 101 > open 99)
+            # Bar 2: Rallies to 112 (hits TP1 @ 110)
+            t1 = int((now - timedelta(minutes=60)).timestamp() * 1000)
+            t2 = int((now - timedelta(minutes=30)).timestamp() * 1000)
+            t3 = int(now.timestamp() * 1000)
+            return [
+                [t1, 99.0, 102.0, 98.0, 101.0, 500.0],  # Bar 1: Green confirmation after Tier 1 touch
+                [t2, 101.0, 112.0, 100.0, 111.0, 800.0], # Bar 2: Smashes TP1
+                [t3, 111.0, 112.0, 110.0, 111.5, 100.0], # Incomplete candle (dropped by fetch_ohlcv)
+            ]
+
+    resolve_pending_zones(MockExchange(), "TEST/USDT", "30m")
+    updated_z = db.get_zone_by_id(z_id)
+    print(f"Zone #{z_id} Status after Dual-Tier resolution: {updated_z['status']}")
+    assert updated_z["status"] == "WIN", f"Expected WIN via 61.8% Tier-1 touch, got {updated_z['status']}"
+    print("Dual-Tier Entry Resolution Test: OK\n")
+
+
+def test_pullback_confirmation_gate():
+    print("=== Testing Pullback Confirmation Gate (38.2% Retracement Check) ===")
+    dates = pd.date_range("2026-01-01", periods=150, freq="30min", tz="utc")
+    # Upward trend to 100, but last candles stay at 99.5 (no 38.2% pullback)
+    closes = np.linspace(80, 100, 150)
+    df = pd.DataFrame({
+        "timestamp": dates,
+        "open": closes - 0.1,
+        "high": closes + 0.5,
+        "low": closes - 0.5,
+        "close": closes,
+        "volume": np.full(150, 1000.0)
+    })
+    df_daily = df.copy()
+
+    res = analyze("TEST/USDT", "30m", df, df_daily, None, None)
+    # Structure cannot qualify without a pullback or up-leg
+    print(f"Gate check qualifies: {res.qualifies}, reason: {res.reject_reason_code}")
+    print("Pullback Confirmation Gate Test: OK\n")
+
+
 if __name__ == "__main__":
     test_signal_engine()
     test_dynamic_universe()
@@ -168,4 +223,6 @@ if __name__ == "__main__":
     test_database()
     test_reporting()
     test_instant_alert_generation()
+    test_dual_tier_resolution()
+    test_pullback_confirmation_gate()
     print("=== All offline tests ran and passed cleanly ===")

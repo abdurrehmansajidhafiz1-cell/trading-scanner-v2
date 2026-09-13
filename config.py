@@ -79,6 +79,16 @@ TP2_EXTENSION = 1.618        # Extended Take Profit (TP2) @ 1.618 Fib Extension
 ENABLE_BREAKEVEN_SL = True
 BREAKEVEN_TRIGGER_RATIO = 0.55  # 55% target move hone par SL entry pe shift (risk-free runner)
 
+# Dual-Tier Entry Execution (61.8% Golden Pocket & 78.6% OTE)
+ENABLE_DUAL_TIER_ENTRY = True   # Dono tiers (61.8% aur 78.6%) par fill track karna
+
+# Pullback Confirmation Gate (Phantom Zone Elimination)
+REQUIRE_PULLBACK_CONFIRMATION = True # Price kam az kam 38.2% retrace shuru kare tab zone qualify ho
+MIN_PULLBACK_RATIO = 0.382           # Minimum 38.2% retracement threshold
+
+# Structure Breakout Auto-Expiry
+ENABLE_BREAKOUT_EXPIRY = True        # Agar price swing high tod de bina entry diye to cleanly expired
+
 # Strict 24-Hour Trade Expiry & Timeout Limits
 MAX_HOLDING_HOURS = 24          # Max 24 ghante tak trade active/pending reh sakti hai, uske baad auto-close
 

@@ -134,6 +134,23 @@ def resolve_pending_zones(exchange, coin: str, timeframe: str):
                         db.update_zone_status(zone["id"], "ACTIVE", touched_at=touched_at)
                         db.update_zone_position(zone["id"], fill_type=fill_type, capital_allocated=capital_allocated, sold_pct=0.0)
 
+                        # Stage 2: Entry Touched & Trade ACTIVE -> Send Trade Signal & 10 Scenarios Playbook Alert
+                        if getattr(config, "ENABLE_INSTANT_ALERTS", True) and not zone.get("is_alert_sent"):
+                            from reporting import send_instant_signal_alert
+                            active_zone_dict = dict(zone)
+                            active_zone_dict["fill_type"] = fill_type
+                            active_zone_dict["capital_allocated"] = capital_allocated
+                            active_zone_dict["touched_at"] = touched_at
+                            sent = send_instant_signal_alert(active_zone_dict)
+                            if sent:
+                                db.mark_zone_alert_sent(zone["id"])
+                                zone["is_alert_sent"] = 1
+                                logger.info(f"Entry filled & instant trade signal alert sent for {zone.get('coin')} [{zone.get('timeframe')}]!")
+                            else:
+                                from engine.signal_queue import push_signal
+                                push_signal(active_zone_dict)
+                                logger.warning(f"Instant alert dispatch failed or pending. Pushed {zone.get('coin')} [{zone.get('timeframe')}] to persistent retry queue.")
+
                 continue
 
             # Step 2: Trade is ACTIVE -> Track Breakeven, Take-Profit (TP1 & TP2), and Stop-Loss
@@ -380,44 +397,34 @@ def process_coin_timeframe(exchange, coin: str, timeframe: str, start_datetime: 
                     target_price=result.target_price, swing_low=result.swing_low,
                     swing_high=result.swing_high, score=result.best_score,
                     actual_rr=result.actual_rr, pivot_len=result.pivot_len,
-                    created_at=result.structure_created_at, score_breakdown=result.score_breakdown,
+                    created_at=checked_at, score_breakdown=result.score_breakdown,
                     entry_1=result.entry_1, entry_2=result.entry_2, tp1_price=result.tp1_price,
-                    tp2_price=result.tp2_price,
+                    tp2_price=result.tp2_price, structure_created_at=result.structure_created_at,
                 )
                 qualified_count += 1
                 logger.info(f"NAYA ZONE: {coin} [{timeframe}] {result.best_zone_name} "
                             f"@ {result.best_zone_price:.4f} (Tier1: {result.entry_1:.4f}, Tier2: {result.entry_2:.4f}), "
                             f"score {result.best_score}, R:R 1:{result.actual_rr:.2f} (candle: {checked_at})")
 
-                # Instant email alerts sirf latest live candle par jane chahiye
+                # Stage 1: Instant Zone Created Alert (Sirf Zone Creation alert bhejna hai; Playbook tab aayegi jab price entry touch karegi)
                 if getattr(config, "ENABLE_INSTANT_ALERTS", True):
-                    from reporting import send_zone_created_alert, send_instant_signal_alert
+                    from reporting import send_zone_created_alert
                     zone_dict = {
                         "id": zone_id, "coin": coin, "timeframe": timeframe,
                         "level_name": result.best_zone_name, "entry_price": result.best_zone_price,
                         "stop_price": result.stop_price, "target_price": result.target_price,
                         "swing_low": result.swing_low, "swing_high": result.swing_high,
                         "score": result.best_score, "actual_rr": result.actual_rr,
-                        "pivot_len": result.pivot_len, "created_at": result.structure_created_at,
+                        "pivot_len": result.pivot_len, "created_at": checked_at,
+                        "structure_created_at": result.structure_created_at,
                         "score_breakdown": result.score_breakdown, "entry_1": result.entry_1,
                         "entry_2": result.entry_2, "tp1_price": result.tp1_price,
                         "tp2_price": result.tp2_price,
                     }
-                    # 1. Zone Created Alert
                     created_sent = send_zone_created_alert(zone_dict)
                     if created_sent:
                         db.mark_zone_alert_stage(zone_id, "is_created_alert_sent")
                         logger.info(f"Zone created alert sent for {coin} [{timeframe}]!")
-
-                    # 2. Trade Signal Alert (10 Scenarios Playbook)
-                    sent = send_instant_signal_alert(zone_dict)
-                    if sent:
-                        db.mark_zone_alert_sent(zone_id)
-                        logger.info(f"Instant trade signal alert sent for {coin} [{timeframe}]!")
-                    else:
-                        from engine.signal_queue import push_signal
-                        push_signal(zone_dict)
-                        logger.warning(f"Instant alert dispatch failed or pending. Pushed {coin} [{timeframe}] to persistent retry queue.")
 
                 qualifying.append({
                     "coin": coin, "timeframe": timeframe, "level": result.best_zone_name,

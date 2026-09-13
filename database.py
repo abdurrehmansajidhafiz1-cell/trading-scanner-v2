@@ -132,6 +132,7 @@ def init_db():
             ("zones", "sold_pct REAL DEFAULT 0.0"),
             ("zones", "realized_pnl_usd REAL DEFAULT 0.0"),
             ("zones", "realized_pnl_pkr REAL DEFAULT 0.0"),
+            ("zones", "structure_created_at TEXT"),
         ]:
             try:
                 cur.execute(f"ALTER TABLE {col_def[0]} ADD COLUMN {col_def[1]};")
@@ -188,16 +189,19 @@ def set_swing_state(coin, timeframe, swing_high, swing_high_time, swing_low, swi
 
 def insert_zone(coin, timeframe, level_name, entry_price, stop_price, target_price,
                 swing_low, swing_high, score, actual_rr, pivot_len, created_at,
-                score_breakdown=None, entry_1=None, entry_2=None, tp1_price=None, tp2_price=None):
+                score_breakdown=None, entry_1=None, entry_2=None, tp1_price=None, tp2_price=None,
+                structure_created_at=None):
     with db_cursor() as cur:
         cur.execute("""
             INSERT INTO zones (coin, timeframe, level_name, entry_price, stop_price, target_price,
                                 swing_low, swing_high, score, actual_rr, pivot_len, created_at,
-                                status, score_breakdown, entry_1, entry_2, tp1_price, tp2_price, is_alert_sent)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, 0)
+                                status, score_breakdown, entry_1, entry_2, tp1_price, tp2_price, is_alert_sent,
+                                structure_created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, 0, ?)
         """, (coin, timeframe, level_name, entry_price, stop_price, target_price,
               swing_low, swing_high, score, actual_rr, pivot_len, created_at,
-              json.dumps(score_breakdown) if score_breakdown else None, entry_1, entry_2, tp1_price, tp2_price))
+              json.dumps(score_breakdown) if score_breakdown else None, entry_1, entry_2, tp1_price, tp2_price,
+              structure_created_at))
         return cur.lastrowid
 
 
