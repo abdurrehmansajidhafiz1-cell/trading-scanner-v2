@@ -367,7 +367,13 @@ def process_coin_timeframe(exchange, coin: str, timeframe: str, start_datetime: 
             already_recorded = prev_state and prev_state["last_recorded_zone_price"] == result.best_zone_price
             structure_after_start = result.structure_created_at and result.structure_created_at >= start_datetime
 
-            if not already_recorded and structure_after_start:
+            # STRICT NO-BACKFILL RULE:
+            # A new zone can ONLY be created if it qualifies on the latest live candle.
+            # If a coin was missing from the active universe and re-enters, historical candles
+            # must NEVER generate stale retroactive zones.
+            is_latest_candle = (i == new_indices[-1]) and (i >= len(df) - 2)
+
+            if not already_recorded and structure_after_start and is_latest_candle:
                 zone_id = db.insert_zone(
                     coin=coin, timeframe=timeframe, level_name=result.best_zone_name,
                     entry_price=result.best_zone_price, stop_price=result.stop_price,
@@ -384,8 +390,7 @@ def process_coin_timeframe(exchange, coin: str, timeframe: str, start_datetime: 
                             f"score {result.best_score}, R:R 1:{result.actual_rr:.2f} (candle: {checked_at})")
 
                 # Instant email alerts sirf latest live candle par jane chahiye
-                is_latest_candle = (i == new_indices[-1])
-                if getattr(config, "ENABLE_INSTANT_ALERTS", True) and is_latest_candle:
+                if getattr(config, "ENABLE_INSTANT_ALERTS", True):
                     from reporting import send_zone_created_alert, send_instant_signal_alert
                     zone_dict = {
                         "id": zone_id, "coin": coin, "timeframe": timeframe,
@@ -414,10 +419,13 @@ def process_coin_timeframe(exchange, coin: str, timeframe: str, start_datetime: 
                         push_signal(zone_dict)
                         logger.warning(f"Instant alert dispatch failed or pending. Pushed {coin} [{timeframe}] to persistent retry queue.")
 
-            qualifying.append({
-                "coin": coin, "timeframe": timeframe, "level": result.best_zone_name,
-                "entry": result.best_zone_price, "score": result.best_score, "rr": result.actual_rr,
-            })
+                qualifying.append({
+                    "coin": coin, "timeframe": timeframe, "level": result.best_zone_name,
+                    "entry": result.best_zone_price, "score": result.best_score, "rr": result.actual_rr,
+                })
+            elif not is_latest_candle:
+                logger.info(f"Skipping retroactive zone insertion for {coin} [{timeframe}] on historical candle {checked_at} (No-backfill rule)")
+
         elif result.reject_reason_code and result.reject_reason_code not in ("INSUFFICIENT_DATA",):
             is_new_or_changed = db.insert_rejected_zone_deduped(
                 coin=coin, timeframe=timeframe, reason_code=result.reject_reason_code,
@@ -535,13 +543,17 @@ def scan_once():
                 coin_errors.append(error_detail)
                 logger.error(error_detail)
 
+    # Independent Active Trade Tracking: Ensure every open (PENDING/ACTIVE) trade is monitored every 5m
     legacy_combos = [(c, tf) for c, tf in db.get_distinct_pending_coin_timeframes() if c not in coins]
+    if legacy_combos:
+        logger.info(f"Independent tracking for {len(legacy_combos)} open trade(s) outside active universe: {legacy_combos}")
     for coin, timeframe in legacy_combos:
         try:
             resolve_pending_zones(exchange, coin, timeframe)
         except Exception as e:
-            error_detail = f"[legacy] {coin} [{timeframe}]: {type(e).__name__} — {e}"
+            error_detail = f"[independent-tracking] {coin} [{timeframe}]: {type(e).__name__} — {e}"
             coin_errors.append(error_detail)
+            logger.error(error_detail)
 
     # Save coin_list in scan_log
     db.insert_scan_log(scan_time, len(coins), zones_qualified_count, zones_rejected_count, coin_list=json.dumps(coins))
