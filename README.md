@@ -14,23 +14,25 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 ## 📊 Live System Status & Dashboard
 
 <!-- LIVE_DASHBOARD_START -->
-> **Last Engine Sync:** `2026-09-14 02:25 PM PKT` (`2026-09-14 09:25 UTC`) | **Cycle:** `Day 12 of 15`
+> **Last Engine Sync:** `2026-09-14 02:31 PM PKT` (`2026-09-14 09:31 UTC`) | **Cycle:** `Day 12 of 15`
 
 ### 📈 Live Performance Key Metrics
 
 | Metric | Value | Status Indicator |
 |---|---|---|
 | **Production Phase** | `Day 12 of 15` | 🟢 Active Tracking |
-| **Total Setups Qualified** | `29` | 🎯 High Confluence (>=75/100) |
+| **Total Setups Qualified** | `30` | 🎯 High Confluence (>=75/100) |
 | **Resolved Trades** | `7` (5W / 2L / 10BE) | ⚖️ Real Execution Cost Modeled |
 | **Cumulative Win Rate** | **`71.4%`** | 🟢 Profitable |
 | **Net Realized P&L** | **`+22.87 R`** | 🟢 Positive Expectancy |
 | **Profit Factor** | **`12.45`** | Target: > 1.50 |
-| **Active / Pending Setups** | `0` open positions | Max 3 Concurrent Allowed |
+| **Active / Pending Setups** | `1` open positions | Max 3 Concurrent Allowed |
 
 ### 🔴 Active & Monitored Trades Live Tracker
 
-> *Abhi market mein koi active/pending trade nahi hai — engine har 5 minute baad high-confluence OTE setups dhoond raha hai.*
+| ID | Coin | TF | Status | Stage / Position | Entry 1 (61.8%) | Entry 2 (78.6%) | Stop Loss | Target 1 (TP1) | Target 2 (TP2) | R:R | Created Time (PKT) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| #62 | **TAO/USDT** | `30m` | ⏳ PENDING | ⏳ Pending Retracement | `232.4268` | `231.1836` | `227.4372` | `236.6300` | `241.5732` | 1:1.45 | 2026-09-14 02:00 PM PKT |
 
 ### 📜 Recent Closed Trades Ledger (Day 1 se Aaj Tak)
 
