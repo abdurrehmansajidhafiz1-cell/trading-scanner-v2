@@ -14,7 +14,7 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 ## 📊 Live System Status & Dashboard
 
 <!-- LIVE_DASHBOARD_START -->
-> **Last Engine Sync:** `2026-09-15 01:25 PM PKT` (`2026-09-15 08:25 UTC`) | **Cycle:** `Day 13 of 15`
+> **Last Engine Sync:** `2026-09-15 01:31 PM PKT` (`2026-09-15 08:31 UTC`) | **Cycle:** `Day 13 of 15`
 
 ### 📈 Live Performance Key Metrics
 
@@ -32,7 +32,7 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 
 | ID | Coin | TF | Status | Stage / Position | Entry 1 (61.8%) | Entry 2 (78.6%) | Stop Loss | Target 1 (TP1) | Target 2 (TP2) | R:R | Created Time (PKT) |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| #65 | **CRCLB/USDT** | `30m` | 🟡 **ACTIVE** | 🟡 In Trade ($50 (61.8%)) | `93.2167` | `91.9164` | `89.2207` | `97.6130` | `102.7833` | 1:2.11 | 2026-09-15 07:30 AM PKT |
+| #65 | **CRCLB/USDT** | `30m` | 🟡 **ACTIVE** | 🟡 In Trade ($100 (61.8%+78.6%)) | `93.2167` | `91.9164` | `89.2207` | `97.6130` | `102.7833` | 1:2.11 | 2026-09-15 07:30 AM PKT |
 
 ### 📜 Recent Closed Trades Ledger (Day 1 se Aaj Tak)
 
