@@ -14,7 +14,7 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 ## 📊 Live System Status & Dashboard
 
 <!-- LIVE_DASHBOARD_START -->
-> **Last Engine Sync:** `2026-09-15 06:55 PM PKT` (`2026-09-15 13:55 UTC`) | **Cycle:** `Day 13 of 15`
+> **Last Engine Sync:** `2026-09-15 07:01 PM PKT` (`2026-09-15 14:01 UTC`) | **Cycle:** `Day 13 of 15`
 
 ### 📈 Live Performance Key Metrics
 
@@ -22,22 +22,21 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 |---|---|---|
 | **Production Phase** | `Day 13 of 15` | 🟢 Active Tracking |
 | **Total Setups Qualified** | `33` | 🎯 High Confluence (>=75/100) |
-| **Resolved Trades** | `8` (5W / 3L / 10BE) | ⚖️ Real Execution Cost Modeled |
-| **Cumulative Win Rate** | **`62.5%`** | 🟢 Profitable |
-| **Net Realized P&L** | **`+21.86 R`** | 🟢 Positive Expectancy |
-| **Profit Factor** | **`8.30`** | Target: > 1.50 |
-| **Active / Pending Setups** | `1` open positions | Max 3 Concurrent Allowed |
+| **Resolved Trades** | `9` (5W / 4L / 10BE) | ⚖️ Real Execution Cost Modeled |
+| **Cumulative Win Rate** | **`55.6%`** | 🟢 Profitable |
+| **Net Realized P&L** | **`+20.86 R`** | 🟢 Positive Expectancy |
+| **Profit Factor** | **`6.23`** | Target: > 1.50 |
+| **Active / Pending Setups** | `0` open positions | Max 3 Concurrent Allowed |
 
 ### 🔴 Active & Monitored Trades Live Tracker
 
-| ID | Coin | TF | Status | Stage / Position | Entry 1 (61.8%) | Entry 2 (78.6%) | Stop Loss | Target 1 (TP1) | Target 2 (TP2) | R:R | Created Time (PKT) |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| #65 | **CRCLB/USDT** | `30m` | 🟡 **ACTIVE** | 🟡 In Trade ($100 (61.8%+78.6%)) | `93.2167` | `91.9164` | `89.2207` | `97.6130` | `102.7833` | 1:2.11 | 2026-09-15 07:30 AM PKT |
+> *Abhi market mein koi active/pending trade nahi hai — engine har 5 minute baad high-confluence OTE setups dhoond raha hai.*
 
 ### 📜 Recent Closed Trades Ledger (Day 1 se Aaj Tak)
 
 | ID | Coin | TF | Result | Realized P&L ($100 Base) | Entry Price | Target 1 | Stop Loss | Resolved Time (PKT) |
 |---|---|---|---|---|---|---|---|---|
+| #65 | **CRCLB/USDT** | `30m` | 🔴 **LOSS (SL Hit)** | **-3.76 USDT** (Rs. -1,053) | `91.9164` | `97.6130` | `89.2207` | 2026-09-15 06:30 PM PKT |
 | #64 | **FIL/USDT** | `30m` | 🔴 **LOSS (SL Hit)** | **-6.56 USDT** (Rs. -1,837) | `0.9562` | `1.0300` | `0.9028` | 2026-09-15 05:00 AM PKT |
 | #63 | **SOL/USDT** | `30m` | ⚪ EXPIRED | 0.00 USDT | `99.6420` | `101.8500` | `98.3571` | 2026-09-14 08:30 PM PKT |
 | #62 | **TAO/USDT** | `30m` | ⚪ EXPIRED | 0.00 USDT | `231.1836` | `236.6300` | `227.4372` | 2026-09-14 02:30 PM PKT |
@@ -47,7 +46,6 @@ An enterprise-grade, fully autonomous algorithmic crypto market scanner and forw
 | #58 | **ZEC/USDT** | `30m` | 🟢 **WIN (Target Hit)** | **+$18.39 USDT** | `1197.9036` | `1289.7785` | `1147.9484` | 2026-09-09 08:00 PM PKT |
 | #57 | **ETH/USDT** | `30m` | 🟢 **WIN (Target Hit)** | **+$13.98 USDT** | `2486.5702` | `2520.9635` | `2461.9653` | 2026-09-09 06:30 PM PKT |
 | #55 | **ENA/USDT** | `1h` | ⚪ EXPIRED | 0.00 USDT | `0.1611` | `0.1687` | `0.1557` | 2026-09-09 08:00 PM PKT |
-| #54 | **ETH/USDT** | `1h` | ⚪ EXPIRED | 0.00 USDT | `2455.7740` | `2504.2470` | `2422.8435` | 2026-09-10 01:01 AM PKT |
 
 <!-- LIVE_DASHBOARD_END -->
 
